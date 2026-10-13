@@ -83,6 +83,8 @@ esp_err_t WebApi::start() {
 }
 
 void WebApi::populate_healthz_fields(WebContext*, JsonWrapper& json) {
+  json.AddItem("touch_value", static_cast<int>(key_.value()));
+  json.AddItem("touch_baseline", static_cast<int>(key_.baseline()));
   const esp_app_desc_t* desc = esp_app_get_description();
   json.AddItem("version", std::string(desc->version));
   json.AddItem("partition", std::string(esp_ota_get_running_partition()->label));

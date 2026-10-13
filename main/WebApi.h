@@ -1,5 +1,6 @@
 #pragma once
 #include "Settings.h"
+#include "TouchKey.h"
 #include "WebServer.h"
 
 // mianesp's WebServer (GET /healthz, POST /reset, POST /set_hostname) plus
@@ -10,7 +11,8 @@
 //   POST /reboot     plain restart (mianesp's /reset also clears Wi-Fi)
 class WebApi : public WebServer {
  public:
-  WebApi(WebContext* ctx, Settings& settings) : WebServer(ctx), settings_(settings) {}
+  WebApi(WebContext* ctx, Settings& settings, const TouchKey& key)
+      : WebServer(ctx), settings_(settings), key_(key) {}
 
   esp_err_t start() override;
 
@@ -26,4 +28,5 @@ class WebApi : public WebServer {
   static esp_err_t reboot_post_handler(httpd_req_t* req);
 
   Settings& settings_;
+  const TouchKey& key_;
 };

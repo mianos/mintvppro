@@ -29,10 +29,15 @@ void TouchKey::init() {
     ESP_ERROR_CHECK(touch_sensor_enable(sens_));
     ESP_ERROR_CHECK(touch_sensor_start_continuous_scanning(sens_));
 
-    // The smoothed reading is still rising from zero for the first few hundred ms.
-    vTaskDelay(pdMS_TO_TICKS(1000));
-    uint32_t v = 0;
-    ESP_ERROR_CHECK(touch_channel_read_data(chan_, TOUCH_CHAN_DATA_TYPE_SMOOTH, &v));
+    // The smoothed reading climbs from zero for a couple of seconds after start;
+    // wait until it stops rising before taking the baseline.
+    uint32_t v = 0, prev = 0;
+    for (int i = 0; i < 50; ++i) {
+        vTaskDelay(pdMS_TO_TICKS(100));
+        ESP_ERROR_CHECK(touch_channel_read_data(chan_, TOUCH_CHAN_DATA_TYPE_SMOOTH, &v));
+        if (prev && v < prev + prev / 100) break;
+        prev = v;
+    }
     baseline_ = float(v);
     ESP_LOGI(TAG, "T%d baseline %" PRIu32 ", press below %.0f", kChannel, v, baseline_ * kPressRatio);
 }
@@ -43,10 +48,18 @@ bool TouchKey::pressed() {
     const bool low = float(v) < baseline_ * (last_ ? kReleaseRatio : kPressRatio);
     lowPolls_ = low ? lowPolls_ + 1 : 0;
     bool now = last_ ? low : lowPolls_ >= kPressPolls;
+    if (now && lowPolls_ >= kStuckPolls) {
+        ESP_LOGW(TAG, "low for 30 s (value %" PRIu32 ", baseline %.0f), recalibrating", v, baseline_);
+        baseline_ = float(v);
+        lowPolls_ = 0;
+        now = false;
+    }
     if (!now) baseline_ += (float(v) - baseline_) * 0.01f;
     if (now != last_) {
         ESP_LOGI(TAG, "%s (value %" PRIu32 ", baseline %.0f)", now ? "pressed" : "released", v, baseline_);
     }
     last_ = now;
+    value_ = v;
+    baselineShown_ = static_cast<uint32_t>(baseline_);
     return now;
 }

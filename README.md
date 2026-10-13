@@ -18,8 +18,9 @@ The touch button is on the front.
 
 - **Tap:** makes the screen one step dimmer. After the dimmest step it goes back to
   the brightest. The clock remembers this after a restart.
-- **Hold for 10 seconds:** forgets the Wi-Fi details and restarts, so you can set up
-  Wi-Fi again.
+- **Hold for 10 seconds, within one minute of turning it on:** forgets the Wi-Fi
+  details and restarts, so you can set up Wi-Fi again. To do this, unplug the clock,
+  plug it back in, then hold the button. Holding it at other times does nothing.
 
 ## First start
 

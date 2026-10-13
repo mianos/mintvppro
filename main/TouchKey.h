@@ -1,5 +1,6 @@
 #pragma once
 
+#include <atomic>
 #include <cstdint>
 
 #include "driver/touch_sens.h"
@@ -11,6 +12,9 @@ public:
     void init();
     // Call periodically (~20 ms); also updates the baseline while released.
     bool pressed();
+    // Latest reading and baseline, for /healthz.
+    uint32_t value() const { return value_; }
+    uint32_t baseline() const { return baselineShown_; }
 
 private:
     static constexpr int kChannel = 9;
@@ -20,10 +24,14 @@ private:
     static constexpr float kReleaseRatio = 0.95f;
     // Phantom dips seen in the field last 20-60 ms; a deliberate tap is longer.
     static constexpr int kPressPolls = 5;
+    // Nobody holds the key this long; treat it as the reading drifting down.
+    static constexpr int kStuckPolls = 30 * 50;
 
     touch_sensor_handle_t sens_ = nullptr;
     touch_channel_handle_t chan_ = nullptr;
     float baseline_ = 0;
     bool last_ = false;
     int lowPolls_ = 0;
+    std::atomic<uint32_t> value_{0};
+    std::atomic<uint32_t> baselineShown_{0};
 };

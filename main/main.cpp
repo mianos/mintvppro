@@ -3,7 +3,7 @@
 // Wi-Fi: ESP-Touch v2 provisioning on first boot (mianesp WiFiManager), then SNTP.
 // OTA: POST the .bin to /firmware (see WebApi.h).
 // Touch key: tap steps the backlight dimmer, wrapping to brightest (saved in NVS);
-//            hold 10 s clears Wi-Fi credentials and reboots into provisioning.
+//            hold 10 s within a minute of power-on clears Wi-Fi and reboots into provisioning.
 // Sunset: computed locally for the configured location, on the date line.
 // Settings (time, location, MQTT): web page at /, or GET/POST /config.
 // Temperature: inside/outside from Node-RED retained MQTT topics, above the digits.
@@ -17,6 +17,7 @@
 #include "esp_log.h"
 #include "esp_ota_ops.h"
 #include "esp_netif_sntp.h"
+#include "esp_system.h"
 #include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -42,7 +43,13 @@ const char* TAG = "clock";
 constexpr uint32_t kBrightness[] = {40, 120, 300, 600, 1023};
 constexpr int kLevels = sizeof(kBrightness) / sizeof(kBrightness[0]);
 constexpr TickType_t kResetHold = pdMS_TO_TICKS(10000);
+// Wi-Fi reset by touch is only armed just after power-on, so a stuck or phantom
+// touch while running can't wipe the credentials.
+constexpr TickType_t kResetWindow = pdMS_TO_TICKS(60000);
 constexpr TickType_t kOtaVerifyTimeout = pdMS_TO_TICKS(120000);
+// WiFiManager retries on every disconnect, but has been seen to stay off the
+// network; a software restart recovers it and keeps the RTC log for /log?prev.
+constexpr TickType_t kOfflineRestart = pdMS_TO_TICKS(3 * 60 * 1000);
 
 std::atomic<NetState> s_net{NetState::Connecting};
 
@@ -74,8 +81,10 @@ void onIpEvent(void*, esp_event_base_t base, int32_t id, void*) {
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) s_net = NetState::Online;
 }
 
-void onWifiEvent(void*, esp_event_base_t, int32_t id, void*) {
+void onWifiEvent(void*, esp_event_base_t, int32_t id, void* data) {
     if (id != WIFI_EVENT_STA_DISCONNECTED) return;
+    const auto* ev = static_cast<const wifi_event_sta_disconnected_t*>(data);
+    ESP_LOGW(TAG, "Wi-Fi disconnected, reason %d, rssi %d", ev->reason, ev->rssi);
     NetState online = NetState::Online;
     s_net.compare_exchange_strong(online, NetState::Connecting);
 }
@@ -140,7 +149,8 @@ extern "C" void app_main(void) {
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, onWifiEvent, nullptr));
 
     static WebContext webCtx(&wifi);
-    static WebApi web(&webCtx, settings);
+    static TouchKey key;
+    static WebApi web(&webCtx, settings, key);
     if (web.start() != ESP_OK) ESP_LOGE(TAG, "web server failed to start, OTA unavailable");
 
     wifi_config_t sta = {};
@@ -158,13 +168,13 @@ extern "C" void app_main(void) {
     Temperature::attach(mqtt, settings.insideTopic, settings.outsideTopic);  // queued; replayed on connect
     bool mqttStarted = false;
 
-    static TouchKey key;
     key.init();
 
     FaceState shown;
     bool wasPressed = false;
     TickType_t pressStart = 0;
     bool otaPending = otaPendingVerify();
+    TickType_t lastOnline = xTaskGetTickCount();
     int sunsetDay = -1;
 
     while (true) {
@@ -184,6 +194,13 @@ extern "C" void app_main(void) {
         if (!mqttStarted && s_net == NetState::Online) {
             mqtt.start();
             mqttStarted = true;
+        }
+
+        if (s_net == NetState::Online) {
+            lastOnline = tick;
+        } else if (s_net == NetState::Connecting && tick - lastOnline > kOfflineRestart) {
+            ESP_LOGE(TAG, "offline for 3 min, restarting");
+            esp_restart();
         }
 
         if (otaPending && s_net == NetState::Online) {
@@ -212,7 +229,7 @@ extern "C" void app_main(void) {
         face.hasOutside =
             Temperature::latest(Temperature::Probe::Outside, face.outsideTenths, face.outsideTrend);
 
-        if (pressed && held >= kResetHold) {
+        if (pressed && held >= kResetHold && pressStart < kResetWindow) {
             face.message = "WIFI RESET";
             display.render([&](Band& b) { drawClockFace(b, face); });
             ESP_LOGW(TAG, "touch held 10 s: clearing Wi-Fi credentials");

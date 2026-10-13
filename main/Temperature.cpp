@@ -77,10 +77,13 @@ esp_err_t onMessage(MqttClient*, const std::string& topic, const JsonWrapper& js
     // Retained messages arrive on every connect; only the timestamp says how old they are.
     if (at == 0) at = time(nullptr);
     const int tenths = static_cast<int>(std::lround(t * 10));
+    // Only a change to the displayed tenth is worth a log line; the office sensor
+    // reports every few seconds with sub-0.1 wobble.
+    const bool shownChanged = r->sampledAt == 0 || tenths != r->tenths;
     updateTrend(*r, tenths, at);
     r->tenths = tenths;
     r->sampledAt = at;
-    ESP_LOGI(TAG, "%s %.2f (%s)", r->name, t, stamp.c_str());
+    if (shownChanged) ESP_LOGI(TAG, "%s %.1f (%s)", r->name, tenths / 10.0, stamp.c_str());
     return ESP_OK;
 }
 

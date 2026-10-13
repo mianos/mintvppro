@@ -116,7 +116,7 @@ void Display::init() {
 
     esp_lcd_panel_dev_config_t panel_cfg = {};
     panel_cfg.reset_gpio_num = kRst;
-    panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB;
+    panel_cfg.rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR;  // RGB showed orange as blue
     panel_cfg.bits_per_pixel = 16;
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io, &panel_cfg, &panel_));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel_));
