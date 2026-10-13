@@ -1,4 +1,4 @@
-// nmtv-clock — NTP clock for the NM-TV-154 mini TV.
+// mintvpro — desk clock for the GeekMagic SmallTV Pro.
 //
 // Wi-Fi: ESP-Touch v2 provisioning on first boot (mianesp WiFiManager), then SNTP.
 // OTA: POST the .bin to /firmware (see WebApi.h).

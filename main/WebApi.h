@@ -3,7 +3,7 @@
 #include "WebServer.h"
 
 // mianesp's WebServer (GET /healthz, POST /reset, POST /set_hostname) plus
-//   POST /firmware   OTA: curl --data-binary @build/nmtv_clock.bin http://nmtv-clock.mianos.com/firmware
+//   POST /firmware   OTA: curl --data-binary @build/mintvpro.bin http://mintvpro.mianos.com/firmware
 //   GET  /log        recent ESP_LOG output; ?prev for the previous boot's tail
 //   GET  /           settings page
 //   GET/POST /config settings as JSON (plus "hostname"); POST applies any subset

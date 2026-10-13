@@ -14,7 +14,6 @@ namespace {
 const char* TAG = "display";
 
 // GeekMagic SmallTV Pro (ESP32) pin map, from giovi321/smalltv-mod board_esp32_pro.h.
-// Not the NM-TV-154, which uses HSPI on 13/14/15 and a switched LCD power rail.
 constexpr spi_host_device_t kHost = SPI2_HOST;
 constexpr gpio_num_t kMosi = GPIO_NUM_23;
 constexpr gpio_num_t kSclk = GPIO_NUM_18;

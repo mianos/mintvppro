@@ -9,7 +9,7 @@ PORT=${PORT:-/dev/tty.usbserial-0001}
 if [ ! -f sdkconfig ] || ! grep -q 'CONFIG_IDF_TARGET="esp32"' sdkconfig 2>/dev/null; then
     idf.py set-target esp32
 fi
-idf.py build 2>&1 | tee /tmp/nmtv_clock_build.log | tail -n 40
+idf.py build 2>&1 | tee /tmp/mintvpro_build.log | tail -n 40
 if [ "$1" = "flash" ]; then
     idf.py -p "$PORT" -b 921600 flash
 fi

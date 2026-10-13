@@ -31,7 +31,7 @@ The touch button is on the front.
 
 ## Settings page
 
-Open `http://<clock name>/` in a browser (for example `http://nmtv-clock.mianos.com/`).
+Open `http://<clock name>/` in a browser (for example `http://mintvpro.mianos.com/`).
 You can change:
 
 - the clock's network name
@@ -45,8 +45,8 @@ clock restart. There is also a button to restart the clock.
 The same settings as JSON:
 
 ```sh
-curl http://nmtv-clock.mianos.com/config
-curl -X POST -d '{"use_24h":1}' http://nmtv-clock.mianos.com/config
+curl http://mintvpro.mianos.com/config
+curl -X POST -d '{"use_24h":1}' http://mintvpro.mianos.com/config
 ```
 
 ## Temperature messages
@@ -65,7 +65,7 @@ You need ESP-IDF 6.0.1. Build, then send the new firmware over Wi-Fi:
 
 ```sh
 ./build.sh
-curl --data-binary @build/nmtv_clock.bin http://nmtv-clock.mianos.com/firmware
+curl --data-binary @build/mintvpro.bin http://mintvpro.mianos.com/firmware
 ```
 
 The clock restarts with the new firmware. If the new firmware can't get onto Wi-Fi
@@ -74,9 +74,9 @@ within 2 minutes, the clock goes back to the old firmware by itself.
 Useful pages for checking on the clock:
 
 ```sh
-curl http://nmtv-clock.mianos.com/healthz    # version, uptime, memory, why it last restarted
-curl http://nmtv-clock.mianos.com/log        # recent log messages
-curl http://nmtv-clock.mianos.com/log?prev   # the last log messages before the last restart
+curl http://mintvpro.mianos.com/healthz    # version, uptime, memory, why it last restarted
+curl http://mintvpro.mianos.com/log        # recent log messages
+curl http://mintvpro.mianos.com/log?prev   # the last log messages before the last restart
 ```
 
 ## Flashing with a cable
@@ -105,6 +105,3 @@ Pins for the SmallTV Pro (ESP32 version). These come from
 | Screen chip select | tied to GND on the board |
 | Backlight (low = on) | 25 |
 | Touch button | 32 (touch channel T9) |
-
-Note: the NM-TV-154 looks similar but uses different pins. This firmware will not
-show anything on that board without changing the pins in `main/Display.cpp`.

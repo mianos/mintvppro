@@ -4,7 +4,7 @@
 // input.value, never innerHTML, so stored strings can't inject markup.
 inline constexpr char kSettingsPage[] = R"HTML(<!doctype html>
 <html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>nmtv-clock</title>
+<title>Mini TV Pro clock</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:32rem;margin:1.5rem auto;padding:0 1rem;color:#222;background:#fafafa}
 h1{font-size:1.3rem;margin-bottom:.2rem}
@@ -17,7 +17,7 @@ small{color:#777}
 button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:4px;background:#2563eb;color:#fff;cursor:pointer}
 #status{margin-left:.8rem}
 </style></head><body>
-<h1>nmtv-clock</h1>
+<h1>Mini TV Pro clock</h1>
 <div id="info">&nbsp;</div>
 <form id="f">
 <fieldset><legend>Device</legend>
