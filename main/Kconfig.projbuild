@@ -1,0 +1,5 @@
+menu "NM-TV Clock"
+    config CLOCK_HOSTNAME
+        string "DHCP hostname"
+        default "nmtv-clock"
+endmenu
