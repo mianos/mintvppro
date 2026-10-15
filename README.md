@@ -5,12 +5,25 @@ A desk clock for the GeekMagic SmallTV Pro, the small ESP32 "crypto ticker" with
 
 ## What it shows
 
-- The time, in big digits (12 or 24 hour).
-- Inside and outside temperature, read from MQTT. A small arrow shows if each one
-  went up or down in the last 10 minutes.
-- The date and today's sunset time.
-- A dot in the top left corner for Wi-Fi: green is connected, orange is connecting,
-  red means Wi-Fi is not set up yet.
+The time (12 hour), the inside and outside temperature read from MQTT, and
+the date. There are two clock faces, chosen on the settings page:
+
+- **VFD** (the default): a glowing aqua display like an old VCR. Big segment digits
+  with a half digit for the 1 of 10-12 o'clock, the temperatures with a ▲ or ▼ if each went up or down in the last 10
+  minutes, and the date. Along the top:
+  - **Wi-Fi symbol:** lit when connected, blinking while connecting.
+  - **SYNC:** the clock got the time from the internet in the last 3 hours.
+  - **Sun or moon:** day or night, from sunrise and sunset at your location.
+  - **Sunset time:** today's sunset, for example 7:07. Its colon blinks in the
+    last hour before sunset.
+  - The sun, moon and sunset time sit behind an amber filter, as do the
+    temperatures and date.
+  - **AM / PM:** tiny, stacked at the right end; the one that applies is lit.
+- **Nixie tubes:** the whole screen is one glass tube with four glowing digits,
+  standing on a wooden base with the temperatures and date on a brass plate. The
+  first digit stays unlit before 10 o'clock, like a 3.5 digit clock.
+  A small lamp in the top left corner is orange when Wi-Fi is connected, blinks
+  while connecting, and is red when Wi-Fi is not set up yet.
 
 ## The button
 
@@ -36,7 +49,8 @@ Open `http://<clock name>/` in a browser (for example `http://mintvpro.mianos.co
 You can change:
 
 - the clock's network name
-- the time zone and 12 or 24 hour time
+- the time zone
+- the clock face
 - your location (used to work out sunset)
 - the MQTT server and the two temperature topics
 
@@ -47,7 +61,7 @@ The same settings as JSON:
 
 ```sh
 curl http://mintvpro.mianos.com/config
-curl -X POST -d '{"use_24h":1}' http://mintvpro.mianos.com/config
+curl -X POST -d '{"face":1}' http://mintvpro.mianos.com/config
 ```
 
 ## Temperature messages
@@ -79,6 +93,20 @@ curl http://mintvpro.mianos.com/healthz    # version, uptime, memory, why it las
 curl http://mintvpro.mianos.com/log        # recent log messages
 curl http://mintvpro.mianos.com/log?prev   # the last log messages before the last restart
 ```
+
+## Changing the nixie and VFD faces
+
+Their glass, digits and text are pictures made in advance, not drawn by the clock.
+To change how they look, edit `tools/nixie/nixie.html` or `tools/vfd/vfd.html` (open
+it in a browser to see a preview), then run:
+
+```sh
+python3 tools/nixie/gen.py
+python3 tools/vfd/gen.py
+```
+
+This needs Google Chrome on a Mac. It rewrites the `main/nixie_*` or `main/vfd_*`
+files and `main/NixieArt.h` or `main/VfdArt.h`; build as usual after that.
 
 ## Flashing with a cable
 

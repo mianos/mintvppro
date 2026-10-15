@@ -27,7 +27,7 @@ button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:4px;background
 <fieldset><legend>Time</legend>
 <label>Timezone (POSIX TZ)<input name="tz" required>
 <small>Sydney: AEST-10AEDT,M10.1.0,M4.1.0/3</small></label>
-<label>Clock<select name="use_24h"><option value="0">12-hour</option><option value="1">24-hour</option></select></label>
+<label>Clock face<select name="face"><option value="1">Nixie tubes</option><option value="2">VFD (VCR style)</option></select></label>
 </fieldset>
 <fieldset><legend>Location (for sunset)</legend>
 <label>Latitude<input name="latitude" inputmode="decimal" required><small>South is negative</small></label>
@@ -45,7 +45,7 @@ button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:4px;background
 <p><button type="button" id="rb" style="background:#6b7280">Restart clock</button></p>
 <script>
 const f=document.getElementById('f'),st=document.getElementById('status');
-const ints=['use_24h','mqtt_port'];
+const ints=['face','mqtt_port'];
 function fill(c){for(const[k,v]of Object.entries(c)){if(f.elements[k])f.elements[k].value=v;}}
 fetch('/config').then(r=>r.json()).then(fill).catch(()=>st.textContent='Could not load settings');
 fetch('/healthz').then(r=>r.json()).then(h=>{document.getElementById('info').textContent=

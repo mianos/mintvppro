@@ -4,9 +4,11 @@
 // OTA: POST the .bin to /firmware (see WebApi.h).
 // Touch key: tap steps the backlight dimmer, wrapping to brightest (saved in NVS);
 //            hold 10 s within a minute of power-on clears Wi-Fi and reboots into provisioning.
-// Sunset: computed locally for the configured location, on the date line.
-// Settings (time, location, MQTT): web page at /, or GET/POST /config.
-// Temperature: inside/outside from Node-RED retained MQTT topics, above the digits.
+// Sunrise/sunset: computed locally for the configured location (VFD day/night marks).
+// Settings (time, face, location, MQTT): web page at /, or GET/POST /config.
+// Faces: nixie tubes or a VCR-style VFD, drawn from art made by tools/nixie and
+// tools/vfd.
+// Temperature: inside/outside from Node-RED retained MQTT topics, below the time.
 
 #include <atomic>
 #include <cstdlib>
@@ -55,10 +57,16 @@ std::atomic<NetState> s_net{NetState::Connecting};
 
 // Mirrors of the settings the main loop reads, written by /config's onChange
 // hooks on the HTTP task.
-std::atomic<bool> s_use24h{false};
+std::atomic<Face> s_face{Face::Vfd};
 std::atomic<double> s_latitude{0};
 std::atomic<double> s_longitude{0};
 std::atomic<bool> s_sunsetDirty{false};
+std::atomic<time_t> s_lastSync{0};
+
+// SNTP re-syncs hourly (CONFIG_LWIP_SNTP_UPDATE_DELAY), so allow a couple of misses.
+constexpr time_t kSyncFreshS = 3 * 3600;
+
+void onTimeSync(struct timeval* tv) { s_lastSync = tv->tv_sec; }
 
 void applyTz(const std::string& tz) {
     setenv("TZ", tz.c_str(), 1);
@@ -111,14 +119,14 @@ extern "C" void app_main(void) {
     static Settings settings(nvs);
     settings.log();
     applyTz(settings.tz);
-    s_use24h = settings.use24h != 0;
     s_latitude = std::strtod(settings.latitude.c_str(), nullptr);
     s_longitude = std::strtod(settings.longitude.c_str(), nullptr);
     settings.onChange("tz", [] {
         applyTz(settings.tz);
         s_sunsetDirty = true;
     });
-    settings.onChange("use_24h", [] { s_use24h = settings.use24h != 0; });
+    s_face = Face(settings.face);
+    settings.onChange("face", [] { s_face = Face(settings.face); });
     settings.onChange("latitude", [] {
         s_latitude = std::strtod(settings.latitude.c_str(), nullptr);
         s_sunsetDirty = true;
@@ -135,7 +143,7 @@ extern "C" void app_main(void) {
     display.setBrightness(kBrightness[level]);
 
     FaceState face;
-    face.use24h = s_use24h;
+    face.face = s_face;
     face.message = "STARTING";
     display.render([&](Band& b) { drawClockFace(b, face); });
 
@@ -159,6 +167,7 @@ extern "C" void app_main(void) {
     }
 
     esp_sntp_config_t sntp_cfg = ESP_NETIF_SNTP_DEFAULT_CONFIG("pool.ntp.org");
+    sntp_cfg.sync_cb = onTimeSync;
     ESP_ERROR_CHECK(esp_netif_sntp_init(&sntp_cfg));
 
     static const std::string mqttUri = settings.mqttUri();
@@ -176,6 +185,7 @@ extern "C" void app_main(void) {
     bool otaPending = otaPendingVerify();
     TickType_t lastOnline = xTaskGetTickCount();
     int sunsetDay = -1;
+    time_t sunriseAt = 0, sunsetAt = 0;
 
     while (true) {
         const TickType_t tick = xTaskGetTickCount();
@@ -217,14 +227,16 @@ extern "C" void app_main(void) {
         // RTC keeps time across soft resets, so a plausible year means synced.
         face.timeValid = face.now.tm_year + 1900 >= 2025;
         face.net = s_net;
-        face.use24h = s_use24h;
+        face.face = s_face;
         if (face.timeValid && (face.now.tm_yday != sunsetDay || s_sunsetDirty.exchange(false))) {
-            time_t set;
-            face.hasSunset = sunsetFor(now, s_latitude, s_longitude, set);
-            if (face.hasSunset) localtime_r(&set, &face.sunset);
+            face.hasSunset = sunTimesFor(now, s_latitude, s_longitude, sunriseAt, sunsetAt);
+            if (face.hasSunset) localtime_r(&sunsetAt, &face.sunset);
             sunsetDay = face.now.tm_yday;
             ESP_LOGI(TAG, "sunset %02d:%02d", face.sunset.tm_hour, face.sunset.tm_min);
         }
+        face.isDay = face.hasSunset && now >= sunriseAt && now < sunsetAt;
+        face.sunsetSoon = face.hasSunset && now < sunsetAt && sunsetAt - now <= 3600;
+        face.synced = s_lastSync != 0 && now - s_lastSync < kSyncFreshS;
         face.hasInside = Temperature::latest(Temperature::Probe::Inside, face.insideTenths, face.insideTrend);
         face.hasOutside =
             Temperature::latest(Temperature::Probe::Outside, face.outsideTenths, face.outsideTrend);

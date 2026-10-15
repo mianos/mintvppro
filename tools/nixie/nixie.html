@@ -1,0 +1,320 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Nixie face</title>
+<!--
+Draws the art for the clock's nixie face: the whole screen is one glass tube.
+Open in a browser to preview the face as the panel will show it (RGB565, dithered,
+composed the same way as the firmware). gen.py loads it with #export and writes
+main/nixie_bg.bin, main/nixie_glow.bin, main/nixie_text.bin and main/NixieArt.h.
+-->
+<style>
+body{margin:0;background:#222;color:#ddd;font:14px system-ui;padding:16px}
+.row{display:flex;gap:24px;align-items:flex-start}
+#big{image-rendering:pixelated;width:720px;height:720px}
+p{margin:4px 0}
+</style>
+<div class="row"><div><p>1:1</p><canvas id="a" width="240" height="240"></canvas><br><br>
+<canvas id="b" width="240" height="240"></canvas></div>
+<div><p>3× (panel pixels)</p><canvas id="big" width="240" height="240"></canvas></div></div>
+<pre id="out" hidden></pre>
+<script>
+const W = 240;
+
+// Digits: tall and narrow like IN-14 cathodes, so the font is squeezed sideways.
+const DIGIT_FONT = '200 150px "Avenir Next Condensed"', DIGIT_SQUEEZE = 0.8;
+const DIGIT_CY = 90;                    // vertical centre of the digit area
+const DIGIT_CX = [31, 83, 157, 209];    // horizontal centres, colon at 120
+const COLON_X = 120, COLON_Y = [72, 112];
+const PAD = 14;                         // room for glow around each digit
+
+// Text under the digits: anti-aliased glyphs for ASCII 0x20-0x7E plus the degree
+// sign stored as 0x7F. Each is a coverage map (0-255) the clock tints when drawing.
+const TEXT_FONT = '600 20px "Avenir Next"', TEXT_H = 24, TEXT_BASE = 19, DEGREE = 0x7F;
+// Engraved dark into a brass plate on the clock's wooden base.
+const TEXT_RGB = [40, 24, 8];
+const BASE_Y = 172;
+// Two-line plate (temperatures, date), wide enough for the temperature line.
+const PLATE_TEXT = 'In 88.8\u00b0   Out 88.8\u00b0', PLATE_H = 56, PLATE_PAD = 12;
+const PLATE_Y = Math.round((BASE_Y + W - PLATE_H) / 2) + 1, TEXT_Y = [PLATE_Y + 3, PLATE_Y + 29];
+
+// Glow colour by intensity: dim deep red-orange up to an orange core. Kept below
+// white; a near-white core glared on the panel.
+const RAMP_STOPS = [[0, [0, 0, 0]], [0.25, [120, 22, 0]], [0.6, [215, 80, 12]], [1, [245, 140, 64]]];
+
+function canvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+function ramp() {
+  const out = [];
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let k = 1;
+    while (RAMP_STOPS[k][0] < t) k++;
+    const [t0, c0] = RAMP_STOPS[k - 1], [t1, c1] = RAMP_STOPS[k], f = (t - t0) / (t1 - t0);
+    out.push(c0.map((v, j) => Math.round(v + (c1[j] - v) * f)));
+  }
+  return out;
+}
+
+// Sets up c to draw a digit centred on (cx, DIGIT_CY); returns its baseline.
+function digitAt(c, cx) {
+  c.save();
+  c.translate(cx, 0); c.scale(DIGIT_SQUEEZE, 1);
+  c.font = DIGIT_FONT; c.textAlign = 'center'; c.textBaseline = 'alphabetic';
+  const m = c.measureText('0');
+  return DIGIT_CY + (m.actualBoundingBoxAscent - m.actualBoundingBoxDescent) / 2;
+}
+
+function glass() {
+  const cv = canvas(W, W), c = cv.getContext('2d');
+  // Warm dark interior, lit a little from the middle.
+  let g = c.createRadialGradient(W / 2, W * 0.45, 10, W / 2, W * 0.45, W * 0.75);
+  g.addColorStop(0, '#1a120c'); g.addColorStop(0.6, '#0d0906'); g.addColorStop(1, '#020101');
+  c.fillStyle = g; c.fillRect(0, 0, W, W);
+
+  // Getter haze: the smoky mirror at the top of a real tube.
+  g = c.createLinearGradient(0, 0, 0, 34);
+  g.addColorStop(0, 'rgba(70,64,60,0.55)'); g.addColorStop(1, 'rgba(70,64,60,0)');
+  c.fillStyle = g; c.fillRect(0, 0, W, 34);
+
+  // Fine anode mesh, faint enough not to shimmer.
+  g = c.createLinearGradient(0, 24, 0, 168);
+  g.addColorStop(0, 'rgba(150,120,90,0)'); g.addColorStop(0.15, 'rgba(150,120,90,0.05)');
+  g.addColorStop(0.85, 'rgba(150,120,90,0.05)'); g.addColorStop(1, 'rgba(150,120,90,0)');
+  c.strokeStyle = g; c.lineWidth = 1;
+  for (let x = 4; x < W; x += 6) { c.beginPath(); c.moveTo(x + .5, 24); c.lineTo(x + .5, 168); c.stroke(); }
+
+  // Unlit cathodes stacked at every position, and the unlit colon.
+  for (const cx of DIGIT_CX) {
+    const y = digitAt(c, cx);
+    c.lineWidth = 1; c.strokeStyle = 'rgba(150,125,100,0.08)';
+    for (const d of '0123456789') c.strokeText(d, 0, y);
+    c.restore();
+  }
+  for (const y of COLON_Y) { c.fillStyle = '#2a1d14'; c.beginPath(); c.arc(COLON_X, y, 3.2, 0, 7); c.fill(); }
+
+  // Curved glass: soft reflections near the sides and a faint sheen across the top.
+  for (const [x, w, a] of [[10, 16, 0.07], [214, 10, 0.04]]) {
+    g = c.createLinearGradient(x, 0, x + w, 0);
+    g.addColorStop(0, 'rgba(255,245,230,0)'); g.addColorStop(0.5, `rgba(255,245,230,${a})`);
+    g.addColorStop(1, 'rgba(255,245,230,0)');
+    c.fillStyle = g; c.fillRect(x, 20, w, 200);
+  }
+  g = c.createRadialGradient(W / 2, -120, 100, W / 2, -120, 180);
+  g.addColorStop(0, 'rgba(255,245,230,0)'); g.addColorStop(0.85, 'rgba(255,245,230,0.06)');
+  g.addColorStop(1, 'rgba(255,245,230,0)');
+  c.fillStyle = g; c.fillRect(0, 0, W, 70);
+
+  // Edge of the envelope: darkens into the corners.
+  g = c.createRadialGradient(W / 2, W / 2, W * 0.45, W / 2, W / 2, W * 0.75);
+  g.addColorStop(0, 'rgba(0,0,0,0)'); g.addColorStop(1, 'rgba(0,0,0,0.7)');
+  c.fillStyle = g; c.fillRect(0, 0, W, W);
+  base(c);
+  return cv;
+}
+
+// Wooden base the tube stands on, with a brass plate for the text.
+function base(c) {
+  c.font = TEXT_FONT;
+  const pw = Math.ceil(c.measureText(PLATE_TEXT).width) + 2 * PLATE_PAD, px = (W - pw) / 2, py = PLATE_Y;
+  let g = c.createLinearGradient(0, BASE_Y, 0, W);
+  g.addColorStop(0, '#3a2414'); g.addColorStop(0.5, '#2a190d'); g.addColorStop(1, '#170d06');
+  c.fillStyle = g; c.fillRect(0, BASE_Y, W, W - BASE_Y);
+  for (let i = 0; i < 40; i++) {  // grain
+    const y = BASE_Y + 2 + i * 1.7;
+    c.strokeStyle = `rgba(0,0,0,${0.08 + 0.08 * Math.sin(i * 1.7)})`;
+    c.beginPath(); c.moveTo(0, y); c.bezierCurveTo(80, y + 3 * Math.sin(i), 160, y - 3 * Math.cos(i), W, y); c.stroke();
+  }
+  c.fillStyle = 'rgba(0,0,0,0.6)'; c.fillRect(0, BASE_Y - 2, W, 2);
+  c.fillStyle = 'rgba(255,220,170,0.18)'; c.fillRect(0, BASE_Y, W, 1);
+
+  g = c.createLinearGradient(0, py, 0, py + PLATE_H);
+  g.addColorStop(0, '#c9a65e'); g.addColorStop(0.45, '#a8843e'); g.addColorStop(1, '#7d6028');
+  c.fillStyle = g; c.beginPath(); c.roundRect(px, py, pw, PLATE_H, 4); c.fill();
+  c.strokeStyle = 'rgba(255,225,160,0.35)'; c.lineWidth = 1;
+  c.beginPath(); c.roundRect(px + .5, py + .5, pw - 1, PLATE_H - 1, 4); c.stroke();
+  for (const x of [px + 5, px + pw - 5]) for (const y of [py + 5, py + PLATE_H - 5]) {
+    c.fillStyle = '#5a4420'; c.beginPath(); c.arc(x, y, 1.6, 0, 7); c.fill();
+  }
+}
+
+// Glow intensity (0-255) of whatever draw() paints in white, cropped to a cell
+// whose top-left is (ox, oy) on the screen.
+function glowCell(draw, cw, ch, ox, oy) {
+  const cv = canvas(cw, ch), c = cv.getContext('2d');
+  c.fillStyle = '#000'; c.fillRect(0, 0, cw, ch);
+  c.translate(-ox, -oy);
+  c.globalCompositeOperation = 'lighter';
+  draw(c);
+  const p = c.getImageData(0, 0, cw, ch).data, out = new Uint8Array(cw * ch);
+  for (let i = 0; i < out.length; i++) out[i] = p[i * 4];
+  return out;
+}
+
+function litDigit(c, d, cx) {
+  const y = digitAt(c, cx);
+  for (const [blur, a] of [[16, 0.25], [7, 0.45], [2, 0.6]]) {
+    c.shadowColor = `rgba(255,255,255,${a})`; c.shadowBlur = blur;
+    c.fillStyle = `rgba(255,255,255,${a})`; c.fillText(d, 0, y);
+  }
+  c.shadowBlur = 0;
+  c.fillStyle = '#fff'; c.fillText(d, 0, y);
+  c.lineWidth = 1.4; c.strokeStyle = 'rgba(255,255,255,0.85)'; c.strokeText(d, 0, y);
+  c.restore();
+}
+
+// Wi-Fi lamp in the top-left corner, a small neon indicator.
+const LAMP = 16;
+function litLamp(c) {
+  c.shadowColor = 'rgba(255,255,255,0.7)'; c.shadowBlur = 5; c.fillStyle = '#fff';
+  c.beginPath(); c.arc(LAMP / 2, LAMP / 2, 2.6, 0, 7); c.fill();
+}
+
+function litColon(c) {
+  for (const y of COLON_Y) {
+    c.shadowColor = 'rgba(255,255,255,0.7)'; c.shadowBlur = 6; c.fillStyle = '#fff';
+    c.beginPath(); c.arc(COLON_X, y, 3.2, 0, 7); c.fill();
+  }
+}
+
+// Cell size for the lit digits: the widest digit plus room for the glow.
+function digitBox() {
+  const c = canvas(1, 1).getContext('2d');
+  c.font = DIGIT_FONT; c.textAlign = 'center';
+  let w = 0;
+  for (const d of '0123456789') {
+    const m = c.measureText(d);
+    w = Math.max(w, Math.max(m.actualBoundingBoxLeft, m.actualBoundingBoxRight) * 2 * DIGIT_SQUEEZE);
+  }
+  const m = c.measureText('0');
+  const h = m.actualBoundingBoxAscent + m.actualBoundingBoxDescent;
+  const cw = Math.ceil(w / 2) * 2 + 2 * PAD, ch = Math.ceil(h) + 2 * PAD;
+  return {cw, ch, oy: Math.round(DIGIT_CY - ch / 2)};
+}
+
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const q = (v, bits, t) => Math.min((1 << bits) - 1, Math.floor(v / 255 * ((1 << bits) - 1) + t));
+
+// RGB565 big-endian with ordered dithering, as the panel takes it.
+function toRgb565(cv) {
+  const p = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  const out = new Uint8Array(cv.width * cv.height * 2);
+  for (let i = 0, n = 0; i < p.length; i += 4, n++) {
+    const x = n % cv.width, y = (n / cv.width) | 0, t = BAYER[(y & 3) * 4 + (x & 3)] / 16;
+    const v = (q(p[i], 5, t) << 11) | (q(p[i + 1], 6, t) << 5) | q(p[i + 2], 5, t);
+    out[n * 2] = v >> 8; out[n * 2 + 1] = v & 0xff;
+  }
+  return out;
+}
+
+// --- Preview: composes the face the same way as the firmware. ---
+
+function unpack(v) { return [(v >> 11) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31]; }
+function pack(r, g, b, x, y) {
+  const t = BAYER[(y & 3) * 4 + (x & 3)] / 16;
+  return (q(r, 5, t) << 11) | (q(g, 6, t) << 5) | q(b, 5, t);
+}
+
+function addGlow(fb, x0, y0, w, h, inten, rmp) {
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+    const k = inten[r * w + c], x = x0 + c, y = y0 + r;
+    if (!k || x < 0 || x >= W || y < 0 || y >= W) continue;
+    const d = unpack(fb[y * W + x]), a = rmp[k];
+    fb[y * W + x] = pack(Math.min(255, d[0] + a[0]), Math.min(255, d[1] + a[1]), Math.min(255, d[2] + a[2]), x, y);
+  }
+}
+
+const glyphOf = (gl, ch) => gl[(ch === '°' ? DEGREE : ch.charCodeAt(0)) - 0x20];
+
+function blendText(fb, gl, x, y, str) {
+  for (const ch of str) {
+    const g = glyphOf(gl, ch);
+    for (let r = 0; r < TEXT_H; r++) for (let c = 0; c < g.w; c++) {
+      const a = g.alpha[r * g.w + c] / 255, px = x + g.left + c, py = y + r;
+      if (!a || px < 0 || px >= W || py >= W) continue;
+      const d = unpack(fb[py * W + px]), m = TEXT_RGB.map((v, k) => v * a + d[k] * (1 - a));
+      fb[py * W + px] = pack(m[0], m[1], m[2], px, py);
+    }
+    x += g.adv;
+  }
+}
+
+function textWidth(gl, str) {
+  let w = 0;
+  for (const ch of str) w += glyphOf(gl, ch).adv;
+  return w;
+}
+
+function face(id, art, time, colon) {
+  const fb = new Uint16Array(W * W);
+  for (let i = 0; i < fb.length; i++) fb[i] = art.bg[i * 2] << 8 | art.bg[i * 2 + 1];
+  const {cw, ch, oy} = art.box;
+  [...time].forEach((d, i) => {
+    if (d !== ' ') addGlow(fb, DIGIT_CX[i] - cw / 2, oy, cw, ch, art.digits[+d], art.ramp);
+  });
+  if (colon) addGlow(fb, art.colon.x, art.colon.y, art.colon.w, art.colon.h, art.colon.px, art.ramp);
+  addGlow(fb, 0, 0, LAMP, LAMP, art.lamp, art.ramp);
+  ['In 22.6°   Out 18.2°', '14 October'].forEach((s, i) =>
+    blendText(fb, art.glyphs, (W - textWidth(art.glyphs, s)) >> 1, TEXT_Y[i], s));
+  const c = document.getElementById(id).getContext('2d'), img = c.createImageData(W, W);
+  for (let i = 0; i < fb.length; i++) img.data.set([...unpack(fb[i]), 255], i * 4);
+  c.putImageData(img, 0, 0);
+}
+
+function glyphs() {
+  const out = [], m0 = canvas(1, 1).getContext('2d');
+  m0.font = TEXT_FONT;
+  for (let code = 0x20; code <= DEGREE; code++) {
+    const ch = code === DEGREE ? '°' : String.fromCharCode(code);
+    const m = m0.measureText(ch);
+    const left = Math.floor(-m.actualBoundingBoxLeft), right = Math.ceil(m.actualBoundingBoxRight);
+    const w = ch === ' ' ? 0 : Math.max(0, right - left);
+    const alpha = new Uint8Array(w * TEXT_H);
+    if (w) {
+      const c = canvas(w, TEXT_H).getContext('2d');
+      c.fillStyle = '#000'; c.fillRect(0, 0, w, TEXT_H);
+      c.font = TEXT_FONT; c.fillStyle = '#fff'; c.fillText(ch, -left, TEXT_BASE);
+      const p = c.getImageData(0, 0, w, TEXT_H).data;
+      for (let i = 0; i < alpha.length; i++) alpha[i] = p[i * 4];
+    }
+    out.push({w, adv: Math.round(m.width), left, alpha});
+  }
+  return out;
+}
+
+function b64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+Promise.all([document.fonts.load(DIGIT_FONT), document.fonts.load(TEXT_FONT)]).then(() => {
+  const box = digitBox();
+  const colon = {x: COLON_X - 12, y: COLON_Y[0] - 12, w: 24, h: COLON_Y[1] - COLON_Y[0] + 24};
+  const art = {
+    box, ramp: ramp(), bg: toRgb565(glass()), glyphs: glyphs(),
+    digits: [...'0123456789'].map(d => glowCell(c => litDigit(c, d, box.cw / 2), box.cw, box.ch, 0, box.oy)),
+    colon: {...colon, px: glowCell(litColon, colon.w, colon.h, colon.x, colon.y)},
+    lamp: glowCell(litLamp, LAMP, LAMP, 0, 0),
+  };
+  if (location.hash === '#export') {
+    const out = document.getElementById('out');
+    out.textContent = JSON.stringify({
+      digit_cx: DIGIT_CX, cell_w: box.cw, cell_h: box.ch, cell_y: box.oy,
+      colon: {x: colon.x, y: colon.y, w: colon.w, h: colon.h},
+      text_y: TEXT_Y, text_h: TEXT_H, ramp: art.ramp,
+      bg: b64(art.bg), digits: art.digits.map(b64), colon_px: b64(art.colon.px),
+      lamp: LAMP, lamp_px: b64(art.lamp), text_rgb: TEXT_RGB,
+      glyphs: art.glyphs.map(g => ({w: g.w, adv: g.adv, left: g.left, alpha: b64(g.alpha)})),
+    });
+    out.hidden = false;
+    return;
+  }
+  face('a', art, '1047', true);
+  face('b', art, ' 705', false);
+  document.getElementById('big').getContext('2d').drawImage(document.getElementById('a'), 0, 0);
+});
+</script>

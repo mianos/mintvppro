@@ -1,5 +1,6 @@
-idf_component_register(SRCS "main.cpp" "Display.cpp" "ClockFace.cpp" "TouchKey.cpp" "WebApi.cpp" "LogBuffer.cpp" "Temperature.cpp" "Sun.cpp"
+idf_component_register(SRCS "main.cpp" "Display.cpp" "ClockFace.cpp" "NixieFace.cpp" "TouchKey.cpp" "WebApi.cpp" "LogBuffer.cpp" "Temperature.cpp" "Sun.cpp" "VfdFace.cpp"
                        INCLUDE_DIRS "."
+                       EMBED_FILES "nixie_bg.bin" "nixie_glow.bin" "nixie_text.bin" "vfd_bg.bin" "vfd_glow.bin"
                        REQUIRES
                          nvsstoragemanager
                          wifimanager

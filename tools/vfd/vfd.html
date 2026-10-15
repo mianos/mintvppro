@@ -1,0 +1,400 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>VFD face</title>
+<!--
+Draws the art for the clock's VFD face, a VCR-style vacuum fluorescent display.
+Open in a browser to preview the face as the panel will show it (RGB565, dithered,
+composed the same way as the firmware). gen.py loads it with #export and writes
+main/vfd_bg.bin, main/vfd_glow.bin and main/VfdArt.h.
+-->
+<style>
+body{margin:0;background:#222;color:#ddd;font:14px system-ui;padding:16px}
+.row{display:flex;gap:24px;align-items:flex-start}
+#big{image-rendering:pixelated;width:720px;height:720px}
+p{margin:4px 0}
+</style>
+<div class="row"><div><p>1:1</p><canvas id="a" width="240" height="240"></canvas><br><br>
+<canvas id="b" width="240" height="240"></canvas></div>
+<div><p>3× (panel pixels)</p><canvas id="big" width="240" height="240"></canvas></div></div>
+<pre id="out" hidden></pre>
+<script>
+const W = 240, PAD = 8;
+const LIT = [90, 255, 220];                 // phosphor colour of static lit labels
+const GHOST = 'rgba(120,170,165,0.09)';     // unlit segments show faintly
+const SLANT = 0.08;
+const LABEL_FONT = '700 10px "Helvetica Neue", Arial';
+
+// Glow colour by intensity, dark teal up to the phosphor's aqua.
+const RAMP_STOPS = [[0, [0, 0, 0]], [0.3, [8, 70, 62]], [0.7, [55, 195, 170]], [1, [105, 255, 225]]];
+// Amber filter film, as printed on the inside of a VCR's front glass: a strip over
+// the sun, moon and sunset time, and a panel over the temperature and date rows.
+const FILTER_PANEL = {x: 4, y: 138, w: 232, h: 96};
+const FILTER_LIT = [235, 140, 35];
+const FILTER_STOPS = [[0, [0, 0, 0]], [0.3, [80, 34, 0]], [0.7, [215, 125, 20]], [1, [255, 185, 70]]];
+const FILTER_GHOST = 'rgba(200,130,50,0.11)';
+let ghostColour = GHOST;
+
+// Each font: cell size comes from glyph size plus PAD; glyphs are drawn at xs on row y.
+// 12-hour time as on a VCR: a narrow half digit that can only show 1, then three
+// full digits (hour, minute tens, minute ones).
+const BIG = {w: 42, h: 86, t: 9, y: 40, xs: [40, 112, 170], seg: 7, chars: '0123456789'};
+const HALF = {w: 2, h: 86, t: 9, y: 40, xs: [20], seg: 7, chars: '1', all: 'b c'};
+const SMALL = {w: 14, h: 26, t: 4, y: 146, xs: [26, 47, 68, 148, 169, 190], seg: 7, chars: '0123456789-', filter: true};
+// Sunset time in the top row's amber strip, e.g. 7:07; xs are set by topRow().
+const TINY = {w: 8, h: 14, t: 2.4, y: 9, xs: [], seg: 7, chars: '0123456789', filter: true};
+const TINY_PITCH = 12, TINY_COLON = 5;
+const TINY_W = 4 * TINY_PITCH + TINY_COLON;
+const ALNUM = {w: 16, h: 28, t: 3, y: 198, xs: [52, 76, 100, 124, 148, 172], seg: 14,
+               chars: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-', filter: true};
+const COLON_X = 96, COLON_Y = [BIG.y + BIG.h * 0.3, BIG.y + BIG.h * 0.7];
+const DP = [[64, SMALL.y + SMALL.h], [186, SMALL.y + SMALL.h]];  // decimal points
+// Trend arrows, stacked under each °C: ▲ rising, ▼ falling over the last 10 minutes.
+const ARROW_X = [89, 211], ARROW_UP_Y = SMALL.y + 14, ARROW_DOWN_Y = SMALL.y + 22, ARROW_W = 10, ARROW_H = 6;
+
+// Segment endpoints in a unit box.
+const P = {TL: [0, 0], TC: [.5, 0], TR: [1, 0], ML: [0, .5], C: [.5, .5], MR: [1, .5], BL: [0, 1], BC: [.5, 1], BR: [1, 1]};
+const SEG = {
+  a: ['TL', 'TR'], b: ['TR', 'MR'], c: ['MR', 'BR'], d: ['BL', 'BR'], e: ['ML', 'BL'], f: ['TL', 'ML'],
+  g: ['ML', 'MR'], g1: ['ML', 'C'], g2: ['C', 'MR'], h: ['TL', 'C'], i: ['TC', 'C'], j: ['TR', 'C'],
+  k: ['BL', 'C'], l: ['C', 'BC'], m: ['C', 'BR'],
+};
+const ALL7 = 'a b c d e f g', ALL14 = 'a b c d e f g1 g2 h i j k l m';
+const D7 = {0: 'a b c d e f', 1: 'b c', 2: 'a b d e g', 3: 'a b c d g', 4: 'b c f g', 5: 'a c d f g',
+            6: 'a c d e f g', 7: 'a b c', 8: 'a b c d e f g', 9: 'a b c d f g', '-': 'g'};
+const D14 = {
+  0: 'a b c d e f j k', 1: 'b c j', 2: 'a b d e g1 g2', 3: 'a b c d g2', 4: 'b c f g1 g2', 5: 'a c d f g1 g2',
+  6: 'a c d e f g1 g2', 7: 'a b c', 8: 'a b c d e f g1 g2', 9: 'a b c d f g1 g2',
+  A: 'a b c e f g1 g2', B: 'a b c d g2 i l', C: 'a d e f', D: 'a b c d i l', E: 'a d e f g1 g2', F: 'a e f g1',
+  G: 'a c d e f g2', H: 'b c e f g1 g2', I: 'a d i l', J: 'b c d e', K: 'e f g1 j m', L: 'd e f',
+  M: 'b c e f h j', N: 'b c e f h m', O: 'a b c d e f', P: 'a b e f g1 g2', Q: 'a b c d e f m',
+  R: 'a b e f g1 g2 m', S: 'a c d f g1 g2', T: 'a i l', U: 'b c d e f', V: 'e f k j', W: 'b c e f k m',
+  X: 'h j k m', Y: 'h j l', Z: 'a d j k', '-': 'g1 g2',
+};
+
+function canvas(w, h) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  return c;
+}
+
+function ramp(stops) {
+  const out = [];
+  for (let i = 0; i < 256; i++) {
+    const t = i / 255;
+    let k = 1;
+    while (stops[k][0] < t) k++;
+    const [t0, c0] = stops[k - 1], [t1, c1] = stops[k], f = (t - t0) / (t1 - t0);
+    out.push(c0.map((v, j) => Math.round(v + (c1[j] - v) * f)));
+  }
+  return out;
+}
+
+// One segment: a bar with pointed ends so neighbours meet on a mitre, slanted.
+function segPath(c, x, y, w, h, t, s) {
+  const [p, q] = SEG[s].map(k => P[k]);
+  let [x1, y1] = [p[0] * w, p[1] * h], [x2, y2] = [q[0] * w, q[1] * h];
+  const len = Math.hypot(x2 - x1, y2 - y1), gap = t * 0.35, e = t / 2;
+  const ux = (x2 - x1) / len, uy = (y2 - y1) / len, nx = -uy * t / 2, ny = ux * t / 2;
+  x1 += ux * gap; y1 += uy * gap; x2 -= ux * gap; y2 -= uy * gap;
+  const pts = [[x1, y1], [x1 + ux * e + nx, y1 + uy * e + ny], [x2 - ux * e + nx, y2 - uy * e + ny], [x2, y2],
+               [x2 - ux * e - nx, y2 - uy * e - ny], [x1 + ux * e - nx, y1 + uy * e - ny]];
+  c.beginPath();
+  pts.forEach(([xx, yy], i) => {
+    const px = x + xx + (h - yy) * SLANT, py = y + yy;
+    i ? c.lineTo(px, py) : c.moveTo(px, py);
+  });
+  c.closePath();
+}
+
+function segs(font, ch) { return (font.seg === 7 ? D7 : D14)[ch].split(' '); }
+
+// Paints shapes as light: white with a soft halo, read back as glow intensity.
+function lit(c, path, fill = true) {
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  for (const [blur, a] of [[6, 0.5], [0, 0.95]]) {
+    c.shadowColor = `rgba(255,255,255,${blur ? 0.8 : 0})`; c.shadowBlur = blur;
+    c.fillStyle = c.strokeStyle = `rgba(255,255,255,${a})`;
+    path(); fill ? c.fill() : c.stroke();
+  }
+  c.restore();
+}
+
+// Same, in the phosphor colour, for labels that are always lit.
+function litColour(c, draw, rgb = LIT) {
+  const r = a => `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${a})`;
+  c.save();
+  c.globalCompositeOperation = 'lighter';
+  c.shadowColor = r(0.8); c.shadowBlur = 6; c.fillStyle = r(0.5); draw();
+  c.shadowBlur = 0; c.fillStyle = r(0.95); draw();
+  c.restore();
+}
+
+function ghost(c, path, fill = true) {
+  c.fillStyle = c.strokeStyle = ghostColour;
+  path(); fill ? c.fill() : c.stroke();
+}
+
+function label(c, x, y, text) { c.font = LABEL_FONT; c.textBaseline = 'top'; c.fillText(text, x, y); }
+
+const ANN = {
+  wifi: {x: 0, y: 2, w: 34, h: 32, draw(c, mode) {
+    c.lineWidth = 2; c.lineCap = 'round';
+    for (const r of [4, 8, 12]) {
+      const p = () => { c.beginPath(); c.arc(16, 22, r, -Math.PI * 0.75, -Math.PI * 0.25); };
+      mode === 'lit' ? lit(c, p, false) : ghost(c, p, false);
+    }
+    const dot = () => { c.beginPath(); c.arc(16, 22, 1.6, 0, 7); };
+    mode === 'lit' ? lit(c, dot) : ghost(c, dot);
+  }},
+  colon: {x: COLON_X - 12, y: Math.floor(COLON_Y[0]) - 12, w: 28, h: Math.ceil(COLON_Y[1] - COLON_Y[0]) + 26,
+    draw(c, mode) {
+      for (const y of COLON_Y) {
+        const p = () => { c.beginPath(); c.arc(COLON_X + (BIG.y + BIG.h - y) * SLANT, y, 3.4, 0, 7); };
+        mode === 'lit' ? lit(c, p) : ghost(c, p);
+      }
+    }},
+};
+
+function triangle(c, mode, x, y, up) {
+  const p = () => {
+    c.beginPath();
+    if (up) { c.moveTo(x, y + ARROW_H); c.lineTo(x + ARROW_W / 2, y); c.lineTo(x + ARROW_W, y + ARROW_H); }
+    else { c.moveTo(x, y); c.lineTo(x + ARROW_W / 2, y + ARROW_H); c.lineTo(x + ARROW_W, y); }
+    c.closePath();
+  };
+  mode === 'lit' ? lit(c, p) : ghost(c, p);
+}
+
+for (const [i, name] of ['In', 'Out'].entries()) {
+  const x = ARROW_X[i];
+  ANN['up' + name] = {filter: true, x: x - 6, y: ARROW_UP_Y - 6, w: ARROW_W + 12, h: ARROW_H + 12,
+                      draw(c, mode) { triangle(c, mode, x, ARROW_UP_Y, true); }};
+  ANN['down' + name] = {filter: true, x: x - 6, y: ARROW_DOWN_Y - 6, w: ARROW_W + 12, h: ARROW_H + 12,
+                        draw(c, mode) { triangle(c, mode, x, ARROW_DOWN_Y, false); }};
+}
+
+// Status row after the Wi-Fi symbol, spread evenly from x 34 to 232:
+// SYNC, sun and moon, sunset time, then a tiny AM over PM.
+const TOP_Y = 10, SUN_R = 3, MOON_R = 5;
+const AMPM_FONT = '700 8px "Helvetica Neue", Arial', AMPM_Y = [5, 15];
+const AMPM_W = (() => { const c = canvas(1, 1).getContext('2d'); c.font = AMPM_FONT; return Math.ceil(c.measureText('AM').width); })();
+let FILTER_STRIP;
+function topRow() {
+  const c = canvas(1, 1).getContext('2d');
+  c.font = LABEL_FONT;
+  const wSync = c.measureText('SYNC').width, wSunset = TINY_W, wData = AMPM_W;
+  const wPair = 14 + 6 + 2 * MOON_R;
+  const gap = (232 - 34 - wSync - wPair - wSunset - wData) / 3;
+  const xSync = 34, xPair = xSync + wSync + gap, xSunset = xPair + wPair + gap, xData = xSunset + wSunset + gap;
+  return {xSync, sunX: xPair + 7, moonX: xPair + 14 + 6 + MOON_R, xSunset, xData, wSync, wSunset, wData};
+}
+
+function sunPath(c, x, y) {
+  return () => {
+    c.beginPath(); c.arc(x, y, SUN_R, 0, 7);
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, r0 = SUN_R + 2, r1 = SUN_R + 4;
+      c.moveTo(x + r0 * Math.cos(a) + 0.8 * Math.sin(a), y + r0 * Math.sin(a) - 0.8 * Math.cos(a));
+      c.lineTo(x + r1 * Math.cos(a), y + r1 * Math.sin(a));
+      c.lineTo(x + r0 * Math.cos(a) - 0.8 * Math.sin(a), y + r0 * Math.sin(a) + 0.8 * Math.cos(a));
+    }
+  };
+}
+
+// Crescent: a disc with an offset disc cut out of it.
+function moon(c, mode, x, y) {
+  c.save();
+  c.beginPath(); c.rect(x - 20, y - 20, 40, 40); c.arc(x + 3, y - 2, MOON_R - 0.5, 0, 7); c.clip('evenodd');
+  const p = () => { c.beginPath(); c.arc(x, y, MOON_R, 0, 7); };
+  mode === 'lit' ? lit(c, p) : ghost(c, p);
+  c.restore();
+}
+
+{
+  const t = topRow(), cy = TOP_Y + 6;
+  const box = (x, w) => ({x: Math.floor(x) - 6, y: TOP_Y - 6, w: Math.ceil(w) + 12, h: 24});
+  ANN.sync = {...box(t.xSync, t.wSync), draw(c, mode) { annLabel(c, mode, t.xSync, TOP_Y, 'SYNC'); }};
+  ANN.sun = {...box(t.sunX - 7, 14), filter: true, draw(c, mode) {
+    mode === 'lit' ? lit(c, sunPath(c, t.sunX, cy)) : ghost(c, sunPath(c, t.sunX, cy));
+  }};
+  ANN.moon = {...box(t.moonX - MOON_R, 2 * MOON_R), filter: true, draw(c, mode) { moon(c, mode, t.moonX, cy); }};
+  TINY.xs = [0, 1, 2, 3].map(i => Math.round(t.xSunset) + i * TINY_PITCH + (i >= 2 ? TINY_COLON : 0));
+  const colonX = Math.round(t.xSunset) + 2 * TINY_PITCH + Math.floor(TINY_COLON / 2) - 1;
+  ANN.tinyColon = {x: colonX - 6, y: TOP_Y - 6, w: 14, h: TINY.h + 12, filter: true, draw(c, mode) {
+    for (const f of [0.3, 0.75]) {
+      const y = TINY.y + TINY.h * f, x = colonX + (TINY.h * (1 - f)) * SLANT;
+      const p = () => { c.beginPath(); c.arc(x, y, 1.5, 0, 7); };
+      mode === 'lit' ? lit(c, p) : ghost(c, p);
+    }
+  }};
+  FILTER_STRIP = {x: Math.floor(t.sunX - 7) - 5, y: TOP_Y - 4, w: Math.ceil(t.xSunset + t.wSunset - t.sunX + 7) + 10, h: 20};
+  const xAmpm = Math.round(t.xData);
+  ANN.am = {x: xAmpm - 6, y: AMPM_Y[0] - 6, w: AMPM_W + 12, h: 20,
+            draw(c, mode) { annLabel(c, mode, xAmpm, AMPM_Y[0], 'AM', AMPM_FONT); }};
+  ANN.pm = {x: xAmpm - 6, y: AMPM_Y[1] - 6, w: AMPM_W + 12, h: 20,
+            draw(c, mode) { annLabel(c, mode, xAmpm, AMPM_Y[1], 'PM', AMPM_FONT); }};
+}
+
+function annLabel(c, mode, x, y, text, font = LABEL_FONT) {
+  const p = () => { c.font = font; c.textBaseline = 'top'; c.fillText(text, x, y); };
+  if (mode === 'lit') {
+    c.save(); c.globalCompositeOperation = 'lighter';
+    for (const [blur, a] of [[6, 0.5], [0, 0.95]]) {
+      c.shadowColor = 'rgba(255,255,255,0.8)'; c.shadowBlur = blur; c.fillStyle = `rgba(255,255,255,${a})`; p();
+    }
+    c.restore();
+  } else { c.fillStyle = ghostColour; p(); }
+}
+
+function dpPath(c, x, y) { return () => { c.beginPath(); c.arc(x, y, 1.8, 0, 7); }; }
+
+// Fine mesh in front of the phosphor: every third row is a little darker.
+const MESH = y => (y % 3 === 0 ? 0.85 : 1);
+
+function background() {
+  const cv = canvas(W, W), c = cv.getContext('2d');
+  // Smoky teal filter glass over a black interior.
+  let g = c.createRadialGradient(W / 2, W / 2, 20, W / 2, W / 2, W * 0.75);
+  g.addColorStop(0, '#07100f'); g.addColorStop(1, '#010303');
+  c.fillStyle = g; c.fillRect(0, 0, W, W);
+  // Filament wires, faintly warm.
+  c.strokeStyle = 'rgba(255,150,90,0.07)'; c.lineWidth = 1;
+  for (const y of [30.5, 134.5, 186.5]) { c.beginPath(); c.moveTo(4, y); c.lineTo(W - 4, y); c.stroke(); }
+
+  // Unlit segments and annunciators.
+  for (const f of [BIG, HALF, SMALL, ALNUM, TINY]) for (const x of f.xs) {
+    ghostColour = f.filter ? FILTER_GHOST : GHOST;
+    for (const s of (f.all || (f.seg === 7 ? ALL7 : ALL14)).split(' ')) ghost(c, () => segPath(c, x, f.y, f.w, f.h, f.t, s));
+  }
+  ghostColour = GHOST;
+  // The filter strip itself shows faintly, as printed film does when unlit.
+  c.fillStyle = 'rgba(255,150,40,0.045)';
+  c.beginPath(); c.roundRect(FILTER_STRIP.x, FILTER_STRIP.y, FILTER_STRIP.w, FILTER_STRIP.h, 2); c.fill();
+  c.beginPath(); c.roundRect(FILTER_PANEL.x, FILTER_PANEL.y, FILTER_PANEL.w, FILTER_PANEL.h, 3); c.fill();
+  for (const a of Object.values(ANN)) {
+    ghostColour = a.filter ? FILTER_GHOST : GHOST;
+    a.draw(c, 'ghost');
+  }
+  ghostColour = GHOST;
+  ghostColour = FILTER_GHOST;
+  for (const [x, y] of DP) ghost(c, dpPath(c, x, y));
+  ghostColour = GHOST;
+
+
+  // Labels that are always lit.
+  c.font = LABEL_FONT; c.textBaseline = 'top';
+  for (const [x, y, t] of [[8, SMALL.y + 8, 'IN'], [87, SMALL.y, '°C'], [122, SMALL.y + 8, 'OUT'], [209, SMALL.y, '°C']]) {
+    litColour(c, () => c.fillText(t, x, y), FILTER_LIT);
+  }
+
+  const img = c.getImageData(0, 0, W, W), p = img.data;
+  for (let i = 0; i < p.length; i += 4) {
+    const m = MESH((i / 4 / W) | 0);
+    p[i] *= m; p[i + 1] *= m; p[i + 2] *= m;
+  }
+  c.putImageData(img, 0, 0);
+  return cv;
+}
+
+// Glow intensity (0-255) of what draw() paints, in a cell whose top-left is (ox, oy).
+function glowCell(draw, cw, ch, ox, oy) {
+  const cv = canvas(cw, ch), c = cv.getContext('2d');
+  c.fillStyle = '#000'; c.fillRect(0, 0, cw, ch);
+  c.translate(-ox, -oy);
+  draw(c);
+  const d = c.getImageData(0, 0, cw, ch).data, out = new Uint8Array(cw * ch);
+  for (let i = 0; i < out.length; i++) out[i] = d[i * 4] * MESH(oy + ((i / cw) | 0));
+  return out;
+}
+
+function fontCells(f) {
+  const cw = Math.ceil(f.w + f.h * SLANT) + 2 * PAD, ch = f.h + 2 * PAD, x0 = 100;
+  const cells = [...f.chars].map(chr => glowCell(c => {
+    for (const s of segs(f, chr)) lit(c, () => segPath(c, x0, f.y, f.w, f.h, f.t, s));
+  }, cw, ch, x0 - PAD, f.y - PAD));
+  return {cw, ch, cells};
+}
+
+const BAYER = [0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5];
+const q = (v, bits, t) => Math.min((1 << bits) - 1, Math.floor(v / 255 * ((1 << bits) - 1) + t));
+
+function toRgb565(cv) {
+  const p = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+  const out = new Uint8Array(cv.width * cv.height * 2);
+  for (let i = 0, n = 0; i < p.length; i += 4, n++) {
+    const x = n % cv.width, y = (n / cv.width) | 0, t = BAYER[(y & 3) * 4 + (x & 3)] / 16;
+    const v = (q(p[i], 5, t) << 11) | (q(p[i + 1], 6, t) << 5) | q(p[i + 2], 5, t);
+    out[n * 2] = v >> 8; out[n * 2 + 1] = v & 0xff;
+  }
+  return out;
+}
+
+// --- Preview: composes the face the same way as the firmware. ---
+
+function unpack(v) { return [(v >> 11) * 255 / 31, ((v >> 5) & 63) * 255 / 63, (v & 31) * 255 / 31]; }
+function pack(r, g, b, x, y) {
+  const t = BAYER[(y & 3) * 4 + (x & 3)] / 16;
+  return (q(r, 5, t) << 11) | (q(g, 6, t) << 5) | q(b, 5, t);
+}
+
+function addGlow(fb, x0, y0, w, h, inten, rmp) {
+  for (let r = 0; r < h; r++) for (let c = 0; c < w; c++) {
+    const k = inten[r * w + c], x = x0 + c, y = y0 + r;
+    if (!k || x < 0 || x >= W || y < 0 || y >= W) continue;
+    const d = unpack(fb[y * W + x]), a = rmp[k];
+    fb[y * W + x] = pack(Math.min(255, d[0] + a[0]), Math.min(255, d[1] + a[1]), Math.min(255, d[2] + a[2]), x, y);
+  }
+}
+
+function face(id, art, o) {
+  const fb = new Uint16Array(W * W);
+  for (let i = 0; i < fb.length; i++) fb[i] = art.bg[i * 2] << 8 | art.bg[i * 2 + 1];
+  const put = (font, fc, i, chr) => {
+    const k = font.chars.indexOf(chr);
+    if (k >= 0) addGlow(fb, font.xs[i] - PAD, font.y - PAD, fc.cw, fc.ch, fc.cells[k], font.filter ? art.filterRamp : art.ramp);
+  };
+  put(HALF, art.half, 0, o.time[0]);
+  [...o.time.slice(1)].forEach((chr, i) => put(BIG, art.big, i, chr));
+  [...o.temps].forEach((chr, i) => put(SMALL, art.small, i, chr));
+  [...o.date].forEach((chr, i) => put(ALNUM, art.alnum, i, chr));
+  [...(o.sunset || '')].forEach((chr, i) => put(TINY, art.tiny, i, chr));
+  for (const k of o.ann) { const a = art.ann[k]; addGlow(fb, a.x, a.y, a.w, a.h, a.px, a.filter ? art.filterRamp : art.ramp); }
+  for (const [x, y] of DP) addGlow(fb, x - 6, y - 6, 12, 12, art.dp, art.filterRamp);
+  const c = document.getElementById(id).getContext('2d'), img = c.createImageData(W, W);
+  for (let i = 0; i < fb.length; i++) img.data.set([...unpack(fb[i]), 255], i * 4);
+  c.putImageData(img, 0, 0);
+}
+
+function b64(bytes) {
+  let s = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) s += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+  return btoa(s);
+}
+
+document.fonts.load(LABEL_FONT).then(() => {
+  const art = {
+    ramp: ramp(RAMP_STOPS), filterRamp: ramp(FILTER_STOPS), bg: toRgb565(background()),
+    big: fontCells(BIG), half: fontCells(HALF), small: fontCells(SMALL), alnum: fontCells(ALNUM), tiny: fontCells(TINY),
+    ann: Object.fromEntries(Object.entries(ANN).map(([k, a]) =>
+      [k, {...a, px: glowCell(c => a.draw(c, 'lit'), a.w, a.h, a.x, a.y)}])),
+    dp: glowCell(c => lit(c, dpPath(c, 6, SMALL.y + SMALL.h)), 12, 12, 0, SMALL.y + SMALL.h - 6),
+  };
+  if (location.hash === '#export') {
+    const font = (f, fc) => ({w: fc.cw, h: fc.ch, y: f.y - PAD, xs: f.xs.map(x => x - PAD), chars: f.chars,
+                              px: fc.cells.map(b64)});
+    document.getElementById('out').textContent = JSON.stringify({
+      ramp: art.ramp, filter_ramp: art.filterRamp, bg: b64(art.bg),
+      big: font(BIG, art.big), half: font(HALF, art.half), small: font(SMALL, art.small), alnum: font(ALNUM, art.alnum), tiny: font(TINY, art.tiny),
+      ann: Object.fromEntries(Object.entries(art.ann).map(([k, a]) => [k, {x: a.x, y: a.y, w: a.w, h: a.h, px: b64(a.px)}])),
+      dp: {w: 12, h: 12, xs: DP.map(([x]) => x - 6), y: DP[0][1] - 6, px: b64(art.dp)},
+    });
+    document.getElementById('out').hidden = false;
+    return;
+  }
+  face('a', art, {time: '1047', temps: '226182', date: '15 OCT', ann: ['wifi', 'pm', 'colon', 'upIn', 'downOut',
+                                                                                'sync', 'sun', 'tinyColon'], sunset: ' 707'});
+  face('b', art, {time: ' 705', temps: '226-1-', date: ' 3 JAN', ann: ['am', 'moon', 'tinyColon'], sunset: ' 707'});
+  document.getElementById('big').getContext('2d').drawImage(document.getElementById('a'), 0, 0);
+});
+</script>

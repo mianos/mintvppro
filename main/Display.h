@@ -21,7 +21,14 @@ public:
     Band(uint16_t* px, int y0, int height) : px_(px), y0_(y0), h_(height) {}
 
     void fill(uint16_t color);
-    void fillRect(int x, int y, int w, int h, uint16_t color);
+    // Copies a w x h image of big-endian RGB565 pixels (the panel's byte order).
+    void blit(int x, int y, int w, int h, const uint8_t* px);
+    // Paints color through a w x h coverage map (0 = keep, 255 = solid), for
+    // anti-aliased text.
+    void blend(int x, int y, int w, int h, const uint8_t* alpha, uint16_t color);
+    // Adds light: each intensity (0-255) in the w x h map picks an RGB colour
+    // from ramp that is added to the pixel, saturating, then dithered to RGB565.
+    void addGlow(int x, int y, int w, int h, const uint8_t* intensity, const uint8_t (*ramp)[3]);
 
 private:
     uint16_t* px_;

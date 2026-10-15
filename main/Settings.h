@@ -9,7 +9,7 @@
 // so booleans are 0/1 ints and coordinates are text.
 struct Settings : SettingsBase {
     std::string tz = "AEST-10AEDT,M10.1.0,M4.1.0/3";  // POSIX TZ, Sydney
-    int use24h = 0;
+    int face = 2;  // 1 nixie, 2 VFD (see Face in ClockFace.h)
     std::string latitude = "-33.8688";
     std::string longitude = "151.2093";
 
@@ -21,7 +21,7 @@ struct Settings : SettingsBase {
 
     explicit Settings(NvsStorageManager& nvs) : SettingsBase(nvs) {
         field("tz", tz);
-        field("use_24h", use24h);
+        field("face", face);
         field("latitude", latitude);
         field("longitude", longitude);
         field("mqtt_server", mqttServer);

@@ -1,6 +1,7 @@
 #include "Display.h"
 
 #include <algorithm>
+#include <cstring>
 
 #include "driver/gpio.h"
 #include "driver/ledc.h"
@@ -54,14 +55,56 @@ void Band::fill(uint16_t color) {
     std::fill_n(px_, kWidth * h_, __builtin_bswap16(color));
 }
 
-void Band::fillRect(int x, int y, int w, int h, uint16_t color) {
+void Band::blit(int x, int y, int w, int h, const uint8_t* px) {
     int x0 = std::max(x, 0), x1 = std::min(x + w, kWidth);
     int y0 = std::max(y, y0_), y1 = std::min(y + h, y0_ + h_);
     if (x0 >= x1 || y0 >= y1) return;
-    // ST7789 takes RGB565 big-endian over SPI.
-    uint16_t c = __builtin_bswap16(color);
     for (int row = y0; row < y1; ++row) {
-        std::fill_n(px_ + (row - y0_) * kWidth + x0, x1 - x0, c);
+        const uint8_t* src = px + ((row - y) * w + (x0 - x)) * 2;
+        memcpy(px_ + (row - y0_) * kWidth + x0, src, (x1 - x0) * 2);
+    }
+}
+
+void Band::blend(int x, int y, int w, int h, const uint8_t* alpha, uint16_t color) {
+    int x0 = std::max(x, 0), x1 = std::min(x + w, kWidth);
+    int y0 = std::max(y, y0_), y1 = std::min(y + h, y0_ + h_);
+    if (x0 >= x1 || y0 >= y1) return;
+    const int cr = color >> 11, cg = (color >> 5) & 0x3F, cb = color & 0x1F;
+    for (int row = y0; row < y1; ++row) {
+        const uint8_t* a = alpha + (row - y) * w + (x0 - x);
+        uint16_t* dst = px_ + (row - y0_) * kWidth + x0;
+        for (int i = 0; i < x1 - x0; ++i) {
+            const int k = a[i];
+            if (k == 0) continue;
+            const uint16_t d = __builtin_bswap16(dst[i]);
+            const int r = ((d >> 11) * (255 - k) + cr * k) / 255;
+            const int g = (((d >> 5) & 0x3F) * (255 - k) + cg * k) / 255;
+            const int b = ((d & 0x1F) * (255 - k) + cb * k) / 255;
+            dst[i] = __builtin_bswap16(uint16_t((r << 11) | (g << 5) | b));
+        }
+    }
+}
+
+void Band::addGlow(int x, int y, int w, int h, const uint8_t* intensity, const uint8_t (*ramp)[3]) {
+    // 4x4 ordered dither, matching tools/nixie so the glow doesn't band.
+    static constexpr uint8_t kBayer[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+    auto quant = [](int v, int max, int t) { return std::min(max, (v * max * 16 + t * 255) / (255 * 16)); };
+    int x0 = std::max(x, 0), x1 = std::min(x + w, kWidth);
+    int y0 = std::max(y, y0_), y1 = std::min(y + h, y0_ + h_);
+    for (int row = y0; row < y1; ++row) {
+        const uint8_t* in = intensity + (row - y) * w;
+        uint16_t* dst = px_ + (row - y0_) * kWidth;
+        for (int col = x0; col < x1; ++col) {
+            const int k = in[col - x];
+            if (k == 0) continue;
+            const uint16_t d = __builtin_bswap16(dst[col]);
+            const int r = std::min(255, (d >> 11) * 255 / 31 + ramp[k][0]);
+            const int g = std::min(255, ((d >> 5) & 0x3F) * 255 / 63 + ramp[k][1]);
+            const int b = std::min(255, (d & 0x1F) * 255 / 31 + ramp[k][2]);
+            const int t = kBayer[(row & 3) * 4 + (col & 3)];
+            const uint16_t v = uint16_t((quant(r, 31, t) << 11) | (quant(g, 63, t) << 5) | quant(b, 31, t));
+            dst[col] = __builtin_bswap16(v);
+        }
     }
 }
 
