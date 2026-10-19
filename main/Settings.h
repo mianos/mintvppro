@@ -16,7 +16,7 @@ struct Settings : SettingsBase {
     // MQTT subscriptions are made once at startup, so changing these reboots.
     std::string mqttServer = "mqtt2.mianos.com";
     int mqttPort = 1883;
-    std::string insideTopic = "home/temperature/office";
+    std::string gridTopic = "home/power/tele";
     std::string outsideTopic = "home/temperature/outside";
 
     explicit Settings(NvsStorageManager& nvs) : SettingsBase(nvs) {
@@ -26,7 +26,7 @@ struct Settings : SettingsBase {
         field("longitude", longitude);
         field("mqtt_server", mqttServer);
         field("mqtt_port", mqttPort);
-        field("inside_topic", insideTopic);
+        field("grid_topic", gridTopic);
         field("outside_topic", outsideTopic);
         load();  // must follow every field() registration
     }

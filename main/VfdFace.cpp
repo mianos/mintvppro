@@ -27,8 +27,8 @@ void light(Band& b, const Font& f, int x, char ch, const uint8_t (*ramp)[3] = kR
 }
 
 // Three small digits from kSmallX[first], with the decimal point: -9.9 to 99.9,
-// otherwise dashes. Then the ▲ or ▼ for the 10-minute trend. All behind the amber
-// filter, like the date.
+// otherwise dashes (so importing more than 9.9 kW shows dashes). Then the ▲ or ▼
+// for the 10-minute trend. All behind the amber filter, like the date.
 void lightTemp(Band& b, int first, const Cell& dp, const Cell& up, const Cell& down, bool has, int tenths,
                Trend trend) {
     char d[3] = {'-', '-', '-'};
@@ -82,7 +82,7 @@ void drawVfdFace(Band& b, const FaceState& s) {
         if (s.now.tm_sec % 2 == 0) light(b, kColon);
     }
 
-    lightTemp(b, 0, kDp0, kUpIn, kDownIn, s.hasInside, s.insideTenths, s.insideTrend);
+    lightTemp(b, 0, kDp0, kUpGrid, kDownGrid, s.hasGrid, s.gridTenths, s.gridTrend);
     lightTemp(b, 3, kDp1, kUpOut, kDownOut, s.hasOutside, s.outsideTenths, s.outsideTrend);
 
     char row[8] = {};

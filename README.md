@@ -5,22 +5,24 @@ A desk clock for the GeekMagic SmallTV Pro, the small ESP32 "crypto ticker" with
 
 ## What it shows
 
-The time (12 hour), the inside and outside temperature read from MQTT, and
+The time (12 hour), the grid power and outside temperature read from MQTT, and
 the date. There are two clock faces, chosen on the settings page:
 
 - **VFD** (the default): a glowing aqua display like an old VCR. Big segment digits
-  with a half digit for the 1 of 10-12 o'clock, the temperatures with a ▲ or ▼ if each went up or down in the last 10
-  minutes, and the date. Along the top:
+  with a half digit for the 1 of 10-12 o'clock, then GRID power in kW (positive while
+  exporting, negative while importing) and the OUT temperature, each with a ▲ or ▼ if it went up or down in the
+  last 10 minutes, and the date. Along the top:
   - **Wi-Fi symbol:** lit when connected, blinking while connecting.
   - **SYNC:** the clock got the time from the internet in the last 3 hours.
   - **Sun or moon:** day or night, from sunrise and sunset at your location.
   - **Sunset time:** today's sunset, for example 7:07. Its colon blinks in the
     last hour before sunset.
   - The sun, moon and sunset time sit behind an amber filter, as do the
-    temperatures and date.
+    power, temperature and date.
   - **AM / PM:** tiny, stacked at the right end; the one that applies is lit.
 - **Nixie tubes:** the whole screen is one glass tube with four glowing digits,
-  standing on a wooden base with the temperatures and date on a brass plate. The
+  standing on a wooden base with the grid power, outside temperature and date on a
+  brass plate. The
   first digit stays unlit before 10 o'clock, like a 3.5 digit clock.
   A small lamp in the top left corner is orange when Wi-Fi is connected, blinks
   while connecting, and is red when Wi-Fi is not set up yet.
@@ -52,7 +54,7 @@ You can change:
 - the time zone
 - the clock face
 - your location (used to work out sunset)
-- the MQTT server and the two temperature topics
+- the MQTT server, the grid power topic and the outside temperature topic
 
 Changes to time and location work straight away. Changes to the name or MQTT make the
 clock restart. There is also a button to restart the clock.
@@ -64,9 +66,20 @@ curl http://mintvpro.mianos.com/config
 curl -X POST -d '{"face":1}' http://mintvpro.mianos.com/config
 ```
 
-## Temperature messages
+## MQTT messages
 
-Each temperature topic should send a message like this:
+The grid power topic (default `home/power/tele`) sends the power in watts, negative
+while exporting (as the meter reports it). Other fields are ignored:
+
+```json
+{"power": -786}
+```
+
+The clock flips the sign, so exporting shows as positive and importing (paying) as
+negative, and shows it in kW to one decimal place, from -9.9 to 99.9. If no message arrives
+for 3 minutes, it shows `--` instead. The ▲ or ▼ needs a change of 0.3 kW or more.
+
+The outside temperature topic should send a message like this:
 
 ```json
 {"temperature": 22.6, "timestamp": "2026-10-13T03:31:30Z"}

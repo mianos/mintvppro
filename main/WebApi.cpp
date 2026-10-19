@@ -190,12 +190,12 @@ esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
   }
   if (hostnameChanged) self->webContext->wifiManager->configSetHostName(hostname);
 
-  const std::string mqttBefore = settings.mqttUri() + settings.insideTopic + "|" + settings.outsideTopic;
+  const std::string mqttBefore = settings.mqttUri() + settings.gridTopic + "|" + settings.outsideTopic;
   settings.loadFromJson(json);
   settings.save();
   settings.log();
   const bool reboot =
-      hostnameChanged || settings.mqttUri() + settings.insideTopic + "|" + settings.outsideTopic != mqttBefore;
+      hostnameChanged || settings.mqttUri() + settings.gridTopic + "|" + settings.outsideTopic != mqttBefore;
 
   JsonWrapper resp = settings.toJson();
   resp.AddItem("hostname", hostnameChanged ? hostname : currentHostname());

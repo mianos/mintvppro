@@ -12,12 +12,14 @@
 namespace {
 
 const char* TAG = "temp";
-constexpr time_t kStaleS = 30 * 60;
 constexpr time_t kTrendWindowS = 10 * 60;
-constexpr int kTrendTenths = 1;  // the smallest change the display shows
 
 struct Reading {
     const char* name;
+    const char* field;
+    double toTenths;    // payload units -> displayed tenths
+    time_t staleS;
+    int trendTenths;    // change that counts as rising or falling
     std::atomic<int> tenths{0};
     std::atomic<time_t> sampledAt{0};  // 0 = never seen
     std::atomic<Trend> trend{Trend::Unknown};
@@ -40,13 +42,17 @@ void updateTrend(Reading& r, int tenths, time_t at) {
         r.trend = Trend::Unknown;  // the sensor was away; the difference isn't a trend
     } else {
         const int d = tenths - r.refTenths;
-        r.trend = d >= kTrendTenths ? Trend::Rising : d <= -kTrendTenths ? Trend::Falling : Trend::Steady;
+        r.trend = d >= r.trendTenths ? Trend::Rising : d <= -r.trendTenths ? Trend::Falling : Trend::Steady;
     }
     r.refTenths = tenths;
     r.refAt = at;
 }
 
-Reading s_readings[2] = {{"inside"}, {"outside"}};
+// Grid power swings by a few hundred W as appliances cycle, so its arrow wants a
+// bigger change than the 0.1 degree the outside arrow uses.
+// The meter reports import as positive; the clock shows export as positive, like the
+// e-ink weather display, so a minus sign means paying for power.
+Reading s_readings[2] = {{"grid", "power", -0.01, 3 * 60, 3}, {"outside", "temperature", 10, 30 * 60, 1}};
 
 bool clockValid(time_t t) {
     struct tm tm;
@@ -70,15 +76,16 @@ time_t parseIsoUtc(const std::string& s) {
 
 esp_err_t onMessage(MqttClient*, const std::string& topic, const JsonWrapper& json, void* ctx) {
     auto* r = static_cast<Reading*>(ctx);
-    double t = 0;
-    if (!json.GetField("temperature", t)) return ESP_OK;
+    double v = 0;
+    if (!json.GetField(r->field, v)) return ESP_OK;
     std::string stamp;
     time_t at = json.GetField("timestamp", stamp) ? parseIsoUtc(stamp) : 0;
-    // Retained messages arrive on every connect; only the timestamp says how old they are.
+    // Retained messages arrive on every connect; only the timestamp says how old they
+    // are. The meter's has none, but it reports every 60 s, so arrival time is close.
     if (at == 0) at = time(nullptr);
-    const int tenths = static_cast<int>(std::lround(t * 10));
-    // Only a change to the displayed tenth is worth a log line; the office sensor
-    // reports every few seconds with sub-0.1 wobble.
+    const int tenths = static_cast<int>(std::lround(v * r->toTenths));
+    // Only a change to the displayed tenth is worth a log line; sensors can report
+    // every few seconds with smaller wobble.
     const bool shownChanged = r->sampledAt == 0 || tenths != r->tenths;
     updateTrend(*r, tenths, at);
     r->tenths = tenths;
@@ -95,17 +102,17 @@ void subscribe(MqttClient& mqtt, const std::string& topic, Reading& r) {
 
 }  // namespace
 
-void Temperature::attach(MqttClient& mqtt, const std::string& insideTopic, const std::string& outsideTopic) {
-    subscribe(mqtt, insideTopic, s_readings[0]);
+void Temperature::attach(MqttClient& mqtt, const std::string& gridTopic, const std::string& outsideTopic) {
+    subscribe(mqtt, gridTopic, s_readings[0]);
     subscribe(mqtt, outsideTopic, s_readings[1]);
 }
 
 bool Temperature::latest(Probe probe, int& tenths, Trend& trend) {
-    const Reading& r = s_readings[probe == Probe::Inside ? 0 : 1];
+    const Reading& r = s_readings[probe == Probe::Grid ? 0 : 1];
     const time_t at = r.sampledAt;
     if (at == 0) return false;
     const time_t now = time(nullptr);
-    if (clockValid(now) && now - at > kStaleS) return false;
+    if (clockValid(now) && now - at > r.staleS) return false;
     tenths = r.tenths;
     trend = r.trend;
     return true;

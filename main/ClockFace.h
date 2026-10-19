@@ -14,9 +14,9 @@ struct FaceState {
     struct tm now = {};
     bool timeValid = false;
     NetState net = NetState::Connecting;
-    bool hasInside = false;
-    int insideTenths = 0;
-    Trend insideTrend = Trend::Unknown;
+    bool hasGrid = false;
+    int gridTenths = 0;  // tenths of a kW, positive when exporting
+    Trend gridTrend = Trend::Unknown;
     bool hasOutside = false;
     int outsideTenths = 0;
     Trend outsideTrend = Trend::Unknown;
@@ -32,9 +32,9 @@ struct FaceState {
     bool operator==(const FaceState& o) const {
         return now.tm_sec == o.now.tm_sec && now.tm_min == o.now.tm_min && now.tm_hour == o.now.tm_hour &&
                now.tm_mday == o.now.tm_mday && timeValid == o.timeValid &&
-               face == o.face && net == o.net && message == o.message && hasInside == o.hasInside &&
-               insideTenths == o.insideTenths && hasOutside == o.hasOutside &&
-               outsideTenths == o.outsideTenths && insideTrend == o.insideTrend &&
+               face == o.face && net == o.net && message == o.message && hasGrid == o.hasGrid &&
+               gridTenths == o.gridTenths && hasOutside == o.hasOutside &&
+               outsideTenths == o.outsideTenths && gridTrend == o.gridTrend &&
                outsideTrend == o.outsideTrend && hasSunset == o.hasSunset &&
                sunset.tm_hour == o.sunset.tm_hour && sunset.tm_min == o.sunset.tm_min && isDay == o.isDay &&
                sunsetSoon == o.sunsetSoon && synced == o.synced;

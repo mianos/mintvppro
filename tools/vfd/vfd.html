@@ -48,7 +48,7 @@ const ALNUM = {w: 16, h: 28, t: 3, y: 198, xs: [52, 76, 100, 124, 148, 172], seg
                chars: '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-', filter: true};
 const COLON_X = 96, COLON_Y = [BIG.y + BIG.h * 0.3, BIG.y + BIG.h * 0.7];
 const DP = [[64, SMALL.y + SMALL.h], [186, SMALL.y + SMALL.h]];  // decimal points
-// Trend arrows, stacked under each °C: ▲ rising, ▼ falling over the last 10 minutes.
+// Trend arrows, stacked under each unit (kW, °C): ▲ rising, ▼ falling over the last 10 minutes.
 const ARROW_X = [89, 211], ARROW_UP_Y = SMALL.y + 14, ARROW_DOWN_Y = SMALL.y + 22, ARROW_W = 10, ARROW_H = 6;
 
 // Segment endpoints in a unit box.
@@ -166,7 +166,7 @@ function triangle(c, mode, x, y, up) {
   mode === 'lit' ? lit(c, p) : ghost(c, p);
 }
 
-for (const [i, name] of ['In', 'Out'].entries()) {
+for (const [i, name] of ['Grid', 'Out'].entries()) {
   const x = ARROW_X[i];
   ANN['up' + name] = {filter: true, x: x - 6, y: ARROW_UP_Y - 6, w: ARROW_W + 12, h: ARROW_H + 12,
                       draw(c, mode) { triangle(c, mode, x, ARROW_UP_Y, true); }};
@@ -284,7 +284,7 @@ function background() {
 
   // Labels that are always lit.
   c.font = LABEL_FONT; c.textBaseline = 'top';
-  for (const [x, y, t] of [[8, SMALL.y + 8, 'IN'], [87, SMALL.y, '°C'], [122, SMALL.y + 8, 'OUT'], [209, SMALL.y, '°C']]) {
+  for (const [x, y, t] of [[4, SMALL.y, 'GRID'], [87, SMALL.y, 'kW'], [122, SMALL.y, 'OUT'], [209, SMALL.y, '°C']]) {
     litColour(c, () => c.fillText(t, x, y), FILTER_LIT);
   }
 
@@ -392,9 +392,9 @@ document.fonts.load(LABEL_FONT).then(() => {
     document.getElementById('out').hidden = false;
     return;
   }
-  face('a', art, {time: '1047', temps: '226182', date: '15 OCT', ann: ['wifi', 'pm', 'colon', 'upIn', 'downOut',
+  face('a', art, {time: '1047', temps: '-08182', date: '15 OCT', ann: ['wifi', 'pm', 'colon', 'downGrid', 'downOut',
                                                                                 'sync', 'sun', 'tinyColon'], sunset: ' 707'});
-  face('b', art, {time: ' 705', temps: '226-1-', date: ' 3 JAN', ann: ['am', 'moon', 'tinyColon'], sunset: ' 707'});
+  face('b', art, {time: ' 705', temps: ' 12-1-', date: ' 3 JAN', ann: ['am', 'moon', 'tinyColon'], sunset: ' 707'});
   document.getElementById('big').getContext('2d').drawImage(document.getElementById('a'), 0, 0);
 });
 </script>

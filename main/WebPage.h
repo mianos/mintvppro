@@ -36,9 +36,9 @@ button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:4px;background
 <fieldset><legend>MQTT (saving a change here restarts the clock)</legend>
 <label>Server<input name="mqtt_server" required></label>
 <label>Port<input name="mqtt_port" type="number" min="1" max="65535" required></label>
-<label>Inside temperature topic<input name="inside_topic"></label>
+<label>Grid power topic<input name="grid_topic"></label>
 <label>Outside temperature topic<input name="outside_topic"></label>
-<small>Topics carry {"temperature":22.6,"timestamp":"..."}; leave empty to hide.</small>
+<small>Grid carries {"power":-786} in W (negative = exporting); outside carries {"temperature":22.6,"timestamp":"..."}. Leave empty to hide.</small>
 </fieldset>
 <button>Save</button><span id="status"></span>
 </form>

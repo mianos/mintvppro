@@ -8,7 +8,7 @@
 // Settings (time, face, location, MQTT): web page at /, or GET/POST /config.
 // Faces: nixie tubes or a VCR-style VFD, drawn from art made by tools/nixie and
 // tools/vfd.
-// Temperature: inside/outside from Node-RED retained MQTT topics, below the time.
+// Readings below the time: grid power and outside temperature from Node-RED MQTT topics.
 
 #include <atomic>
 #include <cstdlib>
@@ -174,7 +174,7 @@ extern "C" void app_main(void) {
     static esp_mqtt_client_config_t mqttCfg = {};
     mqttCfg.broker.address.uri = mqttUri.c_str();
     static MqttClient mqtt(mqttCfg, CONFIG_CLOCK_HOSTNAME);
-    Temperature::attach(mqtt, settings.insideTopic, settings.outsideTopic);  // queued; replayed on connect
+    Temperature::attach(mqtt, settings.gridTopic, settings.outsideTopic);  // queued; replayed on connect
     bool mqttStarted = false;
 
     key.init();
@@ -237,7 +237,7 @@ extern "C" void app_main(void) {
         face.isDay = face.hasSunset && now >= sunriseAt && now < sunsetAt;
         face.sunsetSoon = face.hasSunset && now < sunsetAt && sunsetAt - now <= 3600;
         face.synced = s_lastSync != 0 && now - s_lastSync < kSyncFreshS;
-        face.hasInside = Temperature::latest(Temperature::Probe::Inside, face.insideTenths, face.insideTrend);
+        face.hasGrid = Temperature::latest(Temperature::Probe::Grid, face.gridTenths, face.gridTrend);
         face.hasOutside =
             Temperature::latest(Temperature::Probe::Outside, face.outsideTenths, face.outsideTrend);
 

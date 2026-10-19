@@ -33,8 +33,8 @@ const TEXT_FONT = '600 20px "Avenir Next"', TEXT_H = 24, TEXT_BASE = 19, DEGREE 
 // Engraved dark into a brass plate on the clock's wooden base.
 const TEXT_RGB = [40, 24, 8];
 const BASE_Y = 172;
-// Two-line plate (temperatures, date), wide enough for the temperature line.
-const PLATE_TEXT = 'In 88.8\u00b0   Out 88.8\u00b0', PLATE_H = 56, PLATE_PAD = 12;
+// Two-line plate (grid power and outside temperature, date), wide enough for the first line.
+const PLATE_TEXT = 'Grid -8.8kW  Out 88.8\u00b0', PLATE_H = 56, PLATE_PAD = 12;
 const PLATE_Y = Math.round((BASE_Y + W - PLATE_H) / 2) + 1, TEXT_Y = [PLATE_Y + 3, PLATE_Y + 29];
 
 // Glow colour by intensity: dim deep red-orange up to an orange core. Kept below
@@ -257,7 +257,7 @@ function face(id, art, time, colon) {
   });
   if (colon) addGlow(fb, art.colon.x, art.colon.y, art.colon.w, art.colon.h, art.colon.px, art.ramp);
   addGlow(fb, 0, 0, LAMP, LAMP, art.lamp, art.ramp);
-  ['In 22.6°   Out 18.2°', '14 October'].forEach((s, i) =>
+  ['Grid -0.8kW  Out 18.2°', '14 October'].forEach((s, i) =>
     blendText(fb, art.glyphs, (W - textWidth(art.glyphs, s)) >> 1, TEXT_Y[i], s));
   const c = document.getElementById(id).getContext('2d'), img = c.createImageData(W, W);
   for (let i = 0; i < fb.length; i++) img.data.set([...unpack(fb[i]), 255], i * 4);

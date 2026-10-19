@@ -36,10 +36,10 @@ void drawNixieText(Band& b, int y, const std::string& s, uint16_t color) {
     }
 }
 
-std::string nixieTemp(bool has, int tenths) {
+std::string nixieTenths(bool has, int tenths, const char* unit) {
     if (!has) return "--";
-    char buf[12];
-    snprintf(buf, sizeof(buf), "%.1f%c", tenths / 10.0, nixie::kDegree);
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%.1f%s", tenths / 10.0, unit);
     return buf;
 }
 
@@ -73,9 +73,11 @@ void drawNixieFace(Band& b, const FaceState& s) {
         b.blend(0, 0, kLamp, kLamp, lamp, kLampError);
     }
 
-    // Brass plate: temperatures, then the date, or a status message while starting.
-    const std::string temps =
-        "In " + nixieTemp(s.hasInside, s.insideTenths) + "   Out " + nixieTemp(s.hasOutside, s.outsideTenths);
+    // Brass plate: grid power and outside temperature, then the date, or a status
+    // message while starting.
+    static const char kDegreeStr[] = {kDegree, '\0'};
+    const std::string temps = "Grid " + nixieTenths(s.hasGrid, s.gridTenths, "kW") + "  Out " +
+                              nixieTenths(s.hasOutside, s.outsideTenths, kDegreeStr);
     drawNixieText(b, kTextY[0], temps, kNixieText);
     if (!s.message.empty()) {
         drawNixieText(b, kTextY[1], s.message, kNixieAlert);
