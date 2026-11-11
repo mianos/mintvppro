@@ -188,7 +188,7 @@ esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
   if (hostnameChanged && !validHostname(hostname)) {
     return sendJsonError(req, 400, "hostname: 1-32 letters, digits or '-', not starting/ending with '-'");
   }
-  if (hostnameChanged) self->webContext->wifiManager->configSetHostName(hostname);
+  if (hostnameChanged) static_cast<WifiWebContext*>(self->webContext)->wifiManager->configSetHostName(hostname);
 
   const std::string mqttBefore = settings.mqttUri() + settings.gridTopic + "|" + settings.outsideTopic;
   settings.loadFromJson(json);

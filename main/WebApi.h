@@ -1,7 +1,7 @@
 #pragma once
 #include "Settings.h"
 #include "TouchKey.h"
-#include "WebServer.h"
+#include "WifiWebServer.h"
 
 // mianesp's WebServer (GET /healthz, POST /reset, POST /set_hostname) plus
 //   POST /firmware   OTA: curl --data-binary @build/mintvpro.bin http://mintvpro.mianos.com/firmware
@@ -9,10 +9,10 @@
 //   GET  /           settings page
 //   GET/POST /config settings as JSON (plus "hostname"); POST applies any subset
 //   POST /reboot     plain restart (mianesp's /reset also clears Wi-Fi)
-class WebApi : public WebServer {
+class WebApi : public WifiWebServer {
  public:
-  WebApi(WebContext* ctx, Settings& settings, const TouchKey& key)
-      : WebServer(ctx), settings_(settings), key_(key) {}
+  WebApi(WifiWebContext* ctx, Settings& settings, const TouchKey& key)
+      : WifiWebServer(ctx), settings_(settings), key_(key) {}
 
   esp_err_t start() override;
 

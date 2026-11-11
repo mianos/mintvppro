@@ -4,7 +4,7 @@ idf_component_register(SRCS "main.cpp" "Display.cpp" "ClockFace.cpp" "NixieFace.
                        REQUIRES
                          nvsstoragemanager
                          wifimanager
-                         webserver
+                         webserver wifiwebserver
                          jsonwrapper
                          mqttwrapper
                          settingsbase

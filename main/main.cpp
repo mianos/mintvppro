@@ -156,7 +156,7 @@ extern "C" void app_main(void) {
     }
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, WIFI_EVENT_STA_DISCONNECTED, onWifiEvent, nullptr));
 
-    static WebContext webCtx(&wifi);
+    static WifiWebContext webCtx(&wifi);
     static TouchKey key;
     static WebApi web(&webCtx, settings, key);
     if (web.start() != ESP_OK) ESP_LOGE(TAG, "web server failed to start, OTA unavailable");
