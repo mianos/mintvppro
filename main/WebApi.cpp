@@ -99,6 +99,10 @@ void WebApi::populate_healthz_fields(WebContext*, JsonWrapper& json) {
   if (TaskHandle_t main = xTaskGetHandle("main")) {
     json.AddItem("main_stack_min_free", static_cast<int>(uxTaskGetStackHighWaterMark(main)));
   }
+  // The probe calls getaddrinfo, so its margin is worth watching too.
+  if (TaskHandle_t net = xTaskGetHandle("netwatch")) {
+    json.AddItem("net_stack_min_free", static_cast<int>(uxTaskGetStackHighWaterMark(net)));
+  }
 }
 
 // Raw .bin body streamed into the inactive OTA slot, which becomes the next boot
