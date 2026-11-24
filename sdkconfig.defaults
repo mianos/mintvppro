@@ -9,3 +9,7 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
 CONFIG_ESPTOOLPY_MONITOR_BAUD=115200
 # app_main runs the clock loop (float snprintf, face state, render callbacks)
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
+# The settings page allows a 32 character hostname and the DHCP request carries it
+# twice; the 69 byte default fits 14, so a longer name associates and then never
+# leases. 128 covers the maximum with room for the other options.
+CONFIG_LWIP_DHCP_OPTIONS_LEN=128

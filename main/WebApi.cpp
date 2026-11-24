@@ -19,12 +19,6 @@ namespace {
 constexpr char TAG[] = "webapi";
 constexpr int kMaxConfigBody = 4 * 1024;
 
-esp_err_t send_json(httpd_req_t* req, const JsonWrapper& json) {
-  httpd_resp_set_type(req, "application/json");
-  std::string out = json.ToString();
-  return httpd_resp_sendstr(req, out.c_str());
-}
-
 std::string currentHostname() {
   const char* name = nullptr;
   esp_netif_t* sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
@@ -61,9 +55,8 @@ void restartSoon() {
 
 }  // namespace
 
-esp_err_t WebApi::start() {
-  esp_err_t r = WebServer::start();
-  if (r != ESP_OK) return r;
+void WebApi::register_routes() {
+  WifiWebServer::register_routes();
 
   const httpd_uri_t routes[] = {
       {.uri = "/firmware", .method = HTTP_POST, .handler = firmware_post_handler, .user_ctx = this},
@@ -73,14 +66,12 @@ esp_err_t WebApi::start() {
       {.uri = "/config", .method = HTTP_POST, .handler = config_post_handler, .user_ctx = this},
       {.uri = "/reboot", .method = HTTP_POST, .handler = reboot_post_handler, .user_ctx = this},
   };
+  // start() has raised the table to 32 slots, and a failure here is logged rather
+  // than fatal: a missing endpoint should not cost the ones after it.
   for (const httpd_uri_t& uri : routes) {
-    r = httpd_register_uri_handler(server, &uri);
-    if (r != ESP_OK) {
-      ESP_LOGE(TAG, "register %s: %s", uri.uri, esp_err_to_name(r));
-      return r;
-    }
+    const esp_err_t r = httpd_register_uri_handler(server, &uri);
+    if (r != ESP_OK) ESP_LOGE(TAG, "register %s: %s", uri.uri, esp_err_to_name(r));
   }
-  return ESP_OK;
 }
 
 void WebApi::populate_healthz_fields(WebContext*, JsonWrapper& json) {
@@ -114,7 +105,8 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
   if (static_cast<size_t>(req->content_len) > target->size)
     return sendJsonError(req, 413, "image larger than the OTA partition");
 
-  ESP_LOGW(TAG, "OTA: %d bytes -> %s", req->content_len, target->label);
+  ESP_LOGW(TAG, "OTA: %d bytes -> %s from %s", req->content_len, target->label,
+           callerAddress(req).c_str());
 
   esp_ota_handle_t handle = 0;
   esp_err_t err = esp_ota_begin(target, req->content_len, &handle);
@@ -122,13 +114,23 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
 
   char buf[1024];
   int remaining = req->content_len;
+  // recv() returns a timeout rather than blocking, so a client that dies mid-body
+  // would spin here for ever; give up once it stops making progress.
+  TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(90000);
   while (remaining > 0) {
     const int got = httpd_req_recv(req, buf, std::min<int>(remaining, sizeof buf));
-    if (got == HTTPD_SOCK_ERR_TIMEOUT) continue;
+    if (got == HTTPD_SOCK_ERR_TIMEOUT) {
+      if (xTaskGetTickCount() > deadline) {
+        esp_ota_abort(handle);
+        return sendJsonError(req, 408, "upload stalled");
+      }
+      continue;
+    }
     if (got <= 0) {
       esp_ota_abort(handle);
       return sendJsonError(req, 400, "upload aborted");
     }
+    deadline = xTaskGetTickCount() + pdMS_TO_TICKS(90000);
     err = esp_ota_write(handle, buf, got);
     if (err != ESP_OK) {
       esp_ota_abort(handle);
@@ -145,7 +147,7 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
   JsonWrapper resp;
   resp.AddItem("status", std::string("ok, rebooting"));
   resp.AddItem("partition", std::string(target->label));
-  esp_err_t r = send_json(req, resp);
+  const esp_err_t r = sendJson(req, resp);
   ESP_LOGW(TAG, "OTA complete, rebooting into %s", target->label);
   vTaskDelay(pdMS_TO_TICKS(500));  // let the response flush
   esp_restart();
@@ -167,9 +169,11 @@ esp_err_t WebApi::page_get_handler(httpd_req_t* req) {
 
 esp_err_t WebApi::config_get_handler(httpd_req_t* req) {
   auto* self = static_cast<WebApi*>(req->user_ctx);
+  // The page reads this on every load; a cached copy would show stale settings.
+  httpd_resp_set_hdr(req, "Cache-Control", "no-store");
   JsonWrapper resp = self->settings_.toJson();
   resp.AddItem("hostname", currentHostname());
-  return send_json(req, resp);
+  return sendJson(req, resp);
 }
 
 // Applies any subset of the settings keys and persists. Time and location take
@@ -178,18 +182,8 @@ esp_err_t WebApi::config_get_handler(httpd_req_t* req) {
 esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
   auto* self = static_cast<WebApi*>(req->user_ctx);
   Settings& settings = self->settings_;
-  if (req->content_len <= 0 || req->content_len > kMaxConfigBody) {
-    return sendJsonError(req, 400, "body must be 1-4096 bytes of JSON");
-  }
-  std::string body(req->content_len, '\0');
-  for (int got = 0; got < req->content_len;) {
-    const int n = httpd_req_recv(req, body.data() + got, req->content_len - got);
-    if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
-    if (n <= 0) return sendJsonError(req, 400, "upload aborted");
-    got += n;
-  }
-  JsonWrapper json = JsonWrapper::Parse(body);
-  if (json.Empty()) return sendJsonError(req, 400, "invalid JSON");
+  JsonWrapper json;
+  if (!readJsonBody(req, json, kMaxConfigBody)) return ESP_FAIL;
 
   std::string hostname;
   const bool hostnameChanged = json.GetField("hostname", hostname) && hostname != currentHostname();
@@ -198,6 +192,7 @@ esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
   }
   if (hostnameChanged) static_cast<WifiWebContext*>(self->webContext)->wifiManager->configSetHostName(hostname);
 
+  ESP_LOGI(TAG, "POST /config from %s", callerAddress(req).c_str());
   const std::string mqttBefore = settings.mqttUri() + settings.gridTopic + "|" + settings.outsideTopic;
   settings.loadFromJson(json);
   settings.save();
@@ -208,7 +203,7 @@ esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
   JsonWrapper resp = settings.toJson();
   resp.AddItem("hostname", hostnameChanged ? hostname : currentHostname());
   resp.AddItem("rebooting", reboot);
-  esp_err_t r = send_json(req, resp);
+  const esp_err_t r = sendJson(req, resp);
   if (reboot) {
     ESP_LOGW(TAG, "MQTT or hostname changed, restarting");
     restartSoon();
@@ -219,8 +214,8 @@ esp_err_t WebApi::config_post_handler(httpd_req_t* req) {
 esp_err_t WebApi::reboot_post_handler(httpd_req_t* req) {
   JsonWrapper resp;
   resp.AddItem("status", std::string("rebooting"));
-  esp_err_t r = send_json(req, resp);
-  ESP_LOGW(TAG, "restart requested over HTTP");
+  const esp_err_t r = sendJson(req, resp);
+  ESP_LOGW(TAG, "restart requested over HTTP from %s", callerAddress(req).c_str());
   restartSoon();
   return r;
 }

@@ -154,6 +154,8 @@ extern "C" void app_main(void) {
 
     static WiFiManager wifi(nvs, onIpEvent, nullptr);
     // Build-time hostname only seeds a fresh device; after that the page owns it.
+    // The MQTT identity follows the same name, so a second clock flashed from this
+    // tree does not share (and fight over) one LWT topic.
     std::string host;
     if (!nvs.retrieve("hostname", host)) {
         host = CONFIG_CLOCK_HOSTNAME;
@@ -178,7 +180,7 @@ extern "C" void app_main(void) {
     static const std::string mqttUri = settings.mqttUri();
     static esp_mqtt_client_config_t mqttCfg = {};
     mqttCfg.broker.address.uri = mqttUri.c_str();
-    static MqttClient mqtt(mqttCfg, CONFIG_CLOCK_HOSTNAME);
+    static MqttClient mqtt(mqttCfg, host);
     Temperature::attach(mqtt, settings.gridTopic, settings.outsideTopic);  // queued; replayed on connect
     bool mqttStarted = false;
 

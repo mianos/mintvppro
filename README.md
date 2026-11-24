@@ -137,6 +137,10 @@ curl --data-binary @build/mintvpro.bin http://nmtv-clock.mianos.com/firmware
 The clock restarts with the new firmware. If the new firmware can't get onto Wi-Fi
 within 2 minutes, the clock goes back to the old firmware by itself.
 
+The upload blocks the clock's web server until it finishes — it handles one request
+at a time — so loading pages mid-deploy just waits. A sender that dies mid-body is
+given up on after 90 s without progress, which frees the slot and the OTA partition.
+
 Useful pages for checking on the clock:
 
 ```sh

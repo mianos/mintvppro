@@ -26,6 +26,7 @@ constexpr uint32_t kIntervalMs = 30000;
 constexpr int kConnectTimeoutMs = 3000;
 constexpr int kFailsBeforeDown = 2;
 constexpr uint16_t kDefaultPort = 53;  // DNS answers on TCP as well as UDP
+constexpr const char* kDefaultTargets = "1.1.1.1:53,8.8.8.8:53";
 constexpr UBaseType_t kTaskStack = 5120;
 
 struct Target {
@@ -176,13 +177,17 @@ void start(const char* targets) {
 }
 
 void setTargets(const char* targets) {
-    if (!s_lock || !targets) return;
-    std::vector<Target> parsed = parse(targets);
-    if (parsed.empty()) return;
-    if (xSemaphoreTake(s_lock, portMAX_DELAY) == pdTRUE) {
-        s_targets = std::move(parsed);
-        xSemaphoreGive(s_lock);
+    if (!s_lock) return;
+    std::vector<Target> parsed = targets ? parse(targets) : std::vector<Target>();
+    if (xSemaphoreTake(s_lock, portMAX_DELAY) != pdTRUE) return;
+    if (parsed.empty()) {
+        // A cleared or fat-fingered field must not leave the lamp with nothing to
+        // probe for ever; keep the list in use, or fall back to the built-in one.
+        ESP_LOGW(TAG, "'%s' has no usable host:port", targets ? targets : "");
+        if (s_targets.empty()) parsed = parse(kDefaultTargets);
     }
+    if (!parsed.empty()) s_targets = std::move(parsed);
+    xSemaphoreGive(s_lock);
     nudge();
 }
 

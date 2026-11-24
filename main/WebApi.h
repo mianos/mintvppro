@@ -14,9 +14,8 @@ class WebApi : public WifiWebServer {
   WebApi(WifiWebContext* ctx, Settings& settings, const TouchKey& key)
       : WifiWebServer(ctx), settings_(settings), key_(key) {}
 
-  esp_err_t start() override;
-
  protected:
+  void register_routes() override;
   void populate_healthz_fields(WebContext* ctx, JsonWrapper& json) override;
 
  private:
