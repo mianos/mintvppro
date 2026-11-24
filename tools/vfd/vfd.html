@@ -183,11 +183,14 @@ let FILTER_STRIP;
 function topRow() {
   const c = canvas(1, 1).getContext('2d');
   c.font = LABEL_FONT;
-  const wSync = c.measureText('SYNC').width, wSunset = TINY_W, wData = AMPM_W;
+  const wNet = c.measureText('NET').width, wSync = c.measureText('SYNC').width, wSunset = TINY_W, wData = AMPM_W;
   const wPair = 14 + 6 + 2 * MOON_R;
-  const gap = (232 - 34 - wSync - wPair - wSunset - wData) / 3;
-  const xSync = 34, xPair = xSync + wSync + gap, xSunset = xPair + wPair + gap, xData = xSunset + wSunset + gap;
-  return {xSync, sunX: xPair + 7, moonX: xPair + 14 + 6 + MOON_R, xSunset, xData, wSync, wSunset, wData};
+  const gap = (232 - 34 - wNet - wSync - wPair - wSunset - wData) / 4;
+  // Lamp, then internet reachability, then time sync: the three link states read
+  // left to right from the thing they describe.
+  const xNet = 34, xSync = xNet + wNet + gap, xPair = xSync + wSync + gap,
+        xSunset = xPair + wPair + gap, xData = xSunset + wSunset + gap;
+  return {xNet, xSync, sunX: xPair + 7, moonX: xPair + 14 + 6 + MOON_R, xSunset, xData, wNet, wSync, wSunset, wData};
 }
 
 function sunPath(c, x, y) {
@@ -214,6 +217,7 @@ function moon(c, mode, x, y) {
 {
   const t = topRow(), cy = TOP_Y + 6;
   const box = (x, w) => ({x: Math.floor(x) - 6, y: TOP_Y - 6, w: Math.ceil(w) + 12, h: 24});
+  ANN.net = {...box(t.xNet, t.wNet), draw(c, mode) { annLabel(c, mode, t.xNet, TOP_Y, 'NET'); }};
   ANN.sync = {...box(t.xSync, t.wSync), draw(c, mode) { annLabel(c, mode, t.xSync, TOP_Y, 'SYNC'); }};
   ANN.sun = {...box(t.sunX - 7, 14), filter: true, draw(c, mode) {
     mode === 'lit' ? lit(c, sunPath(c, t.sunX, cy)) : ghost(c, sunPath(c, t.sunX, cy));
@@ -392,7 +396,7 @@ document.fonts.load(LABEL_FONT).then(() => {
     document.getElementById('out').hidden = false;
     return;
   }
-  face('a', art, {time: '1047', temps: '-08182', date: '15 OCT', ann: ['wifi', 'pm', 'colon', 'downGrid', 'downOut',
+  face('a', art, {time: '1047', temps: '-08182', date: '15 OCT', ann: ['wifi', 'net', 'pm', 'colon', 'downGrid', 'downOut',
                                                                                 'sync', 'sun', 'tinyColon'], sunset: ' 707'});
   face('b', art, {time: ' 705', temps: ' 12-1-', date: ' 3 JAN', ann: ['am', 'moon', 'tinyColon'], sunset: ' 707'});
   document.getElementById('big').getContext('2d').drawImage(document.getElementById('a'), 0, 0);
