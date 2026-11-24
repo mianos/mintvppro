@@ -149,6 +149,52 @@ curl http://nmtv-clock.mianos.com/log        # recent log messages
 curl http://nmtv-clock.mianos.com/log?prev   # the last log messages before the last restart
 ```
 
+## Changing the partition table
+
+The table used to stop at `0x3e0000`, throwing away the last 128 KB, with slots of
+`0x1e0000`. They now split `0x20000..0x400000` evenly at `0x1f0000` — 64 KB more per
+slot, and 10% headroom instead of 0.5%. This was installed over Wi-Fi with no cable
+and no re-provisioning; recorded here because it is not the obvious sequence.
+
+What makes it safe is that `nvs`, `otadata` and the `ota_0` offset never move, so
+the device can always boot the image that is running while the table is mid-change.
+
+```sh
+vi partitions.csv                 # the new layout; keep ota_0 at 0x20000
+./build.sh                        # never flash a table without the matching app
+./repartition.sh
+```
+
+`repartition.sh` pushes the current image into `ota_0`, waits for that to be the
+running image, then POSTs `build/partition_table/partition-table.bin` to
+`/repartition`. It refuses if `ota_0` is already `0x1f0000`.
+
+The endpoint, in order:
+
+1. verifies the table (magic and MD5) with `esp_partition_table_verify`;
+2. refuses a table whose `ota_0` is not the address the image is running from;
+3. sets the boot flag to `ota_0`, so an interruption still lands somewhere sane;
+4. writes, reads back and compares, and restores the old table on a mismatch.
+
+`GET /repartition` prints the live layout. Only a cable (see below) recovers a
+table that is blank or wrong.
+
+### The two traps
+
+**`esp_flash_erase_region` faults on this sector.** It flushes the cache at the end
+of every erase, and the 64 KB page covering `0x8000` is the bootloader's, so it is
+always mapped; the flush dies there. The erase itself lands before the fault, which
+is why an attempt takes the clock off the network with a blank table.
+
+**`esp_rom_spiflash_*` is the wrong layer.** Those wrappers are flash-resident, so
+they fault as soon as the cache is down. The erase and write use the flash chip
+driver pointers (`chip_drv->erase_sector` / `write`) inside one held cache and skip
+the flush — nothing ever executes from the table sector.
+
+If an attempt stops part way, `/healthz` shows `reset_reason: panic` and the next
+boot logs the crumb number from the attempt (`crumb 1` = before the cache went
+down, `2` = in the erase/write). A good write clears it.
+
 ## Changing the nixie and VFD faces
 
 Their glass, digits and text are pictures made in advance, not drawn by the clock.
@@ -165,9 +211,8 @@ files and `main/NixieArt.h` or `main/VfdArt.h`; build as usual after that.
 
 ## Flashing with a cable
 
-You only need this the first time, if updating over Wi-Fi stops working, or after
-a partition table change (the app slot has moved, so nothing already on the clock
-lines up until it is rewritten).
+You only need this the first time, or if updating over Wi-Fi stops working. A
+partition table change does **not** need it — see below.
 
 The USB-C port only gives power. To flash, open the case and connect a 3.3 V USB to
 serial adapter to the pins inside (TX, RX, GND). Then:
