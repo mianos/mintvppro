@@ -30,6 +30,7 @@
 #include "Display.h"
 #include "LogBuffer.h"
 #include "MqttClient.h"
+#include "NetWatch.h"
 #include "NvsStorageManager.h"
 #include "Settings.h"
 #include "Sun.h"
@@ -86,13 +87,16 @@ void initNvs() {
 }
 
 void onIpEvent(void*, esp_event_base_t base, int32_t id, void*) {
-    if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) s_net = NetState::Online;
+    if (base != IP_EVENT || id != IP_EVENT_STA_GOT_IP) return;
+    s_net = NetState::Online;
+    NetWatch::nudge();  // the link is back; do not wait out the interval
 }
 
 void onWifiEvent(void*, esp_event_base_t, int32_t id, void* data) {
     if (id != WIFI_EVENT_STA_DISCONNECTED) return;
     const auto* ev = static_cast<const wifi_event_sta_disconnected_t*>(data);
     ESP_LOGW(TAG, "Wi-Fi disconnected, reason %d, rssi %d", ev->reason, ev->rssi);
+    NetWatch::linkLost();
     NetState online = NetState::Online;
     s_net.compare_exchange_strong(online, NetState::Connecting);
 }
@@ -135,6 +139,7 @@ extern "C" void app_main(void) {
         s_longitude = std::strtod(settings.longitude.c_str(), nullptr);
         s_sunsetDirty = true;
     });
+    settings.onChange("net_check", [] { NetWatch::setTargets(settings.netCheck.c_str()); });
     static Display display;
     display.init();
 
@@ -178,6 +183,7 @@ extern "C" void app_main(void) {
     bool mqttStarted = false;
 
     key.init();
+    NetWatch::start(settings.netCheck.c_str());
 
     FaceState shown;
     bool wasPressed = false;
@@ -227,6 +233,7 @@ extern "C" void app_main(void) {
         // RTC keeps time across soft resets, so a plausible year means synced.
         face.timeValid = face.now.tm_year + 1900 >= 2025;
         face.net = s_net;
+        face.internet = NetWatch::up();
         face.face = s_face;
         if (face.timeValid && (face.now.tm_yday != sunsetDay || s_sunsetDirty.exchange(false))) {
             face.hasSunset = sunTimesFor(now, s_latitude, s_longitude, sunriseAt, sunsetAt);
@@ -250,6 +257,9 @@ extern "C" void app_main(void) {
             face.message = "USE ESPTOUCH V2";
         } else if (!face.timeValid) {
             face.message = face.net == NetState::Online ? "NTP SYNC..." : "WIFI...";
+        } else if (!face.internet && NetWatch::downForS() >= 60) {
+            // A minute down is worth the date; shorter gaps are the lamp only.
+            face.message = "NO INTERNET";
         } else {
             face.message.clear();
         }

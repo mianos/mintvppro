@@ -25,6 +25,7 @@ struct FaceState {
     bool isDay = false;       // between sunrise and sunset
     bool sunsetSoon = false;  // within the hour before sunset
     bool synced = false;      // internet time received recently
+    bool internet = false;    // reachability probe, not the Wi-Fi link
     // Status while starting up; replaces the date when non-empty.
     std::string message;
     Face face = Face::Vfd;
@@ -37,7 +38,7 @@ struct FaceState {
                outsideTenths == o.outsideTenths && gridTrend == o.gridTrend &&
                outsideTrend == o.outsideTrend && hasSunset == o.hasSunset &&
                sunset.tm_hour == o.sunset.tm_hour && sunset.tm_min == o.sunset.tm_min && isDay == o.isDay &&
-               sunsetSoon == o.sunsetSoon && synced == o.synced;
+               sunsetSoon == o.sunsetSoon && synced == o.synced && internet == o.internet;
     }
 };
 

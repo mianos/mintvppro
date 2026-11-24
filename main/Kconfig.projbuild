@@ -1,5 +1,5 @@
 menu "Mini TV Pro Clock"
     config CLOCK_HOSTNAME
         string "DHCP hostname"
-        default "mintvpro"
+        default "nmtv-clock"
 endmenu

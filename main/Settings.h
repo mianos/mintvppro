@@ -18,6 +18,8 @@ struct Settings : SettingsBase {
     int mqttPort = 1883;
     std::string gridTopic = "home/power/tele";
     std::string outsideTopic = "home/temperature/outside";
+    // Reachability targets for the NET lamp, comma separated host:port.
+    std::string netCheck = "1.1.1.1:53,8.8.8.8:53";
 
     explicit Settings(NvsStorageManager& nvs) : SettingsBase(nvs) {
         field("tz", tz);
@@ -28,6 +30,7 @@ struct Settings : SettingsBase {
         field("mqtt_port", mqttPort);
         field("grid_topic", gridTopic);
         field("outside_topic", outsideTopic);
+        field("net_check", netCheck);
         load();  // must follow every field() registration
     }
 

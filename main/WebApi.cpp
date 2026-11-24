@@ -5,6 +5,7 @@
 #include <string>
 
 #include "LogBuffer.h"
+#include "NetWatch.h"
 #include "WebPage.h"
 #include "esp_app_desc.h"
 #include "esp_netif.h"
@@ -91,6 +92,9 @@ void WebApi::populate_healthz_fields(WebContext*, JsonWrapper& json) {
   json.AddItem("uptime_s", static_cast<int>(esp_timer_get_time() / 1000000));
   json.AddItem("heap_free", static_cast<int>(esp_get_free_heap_size()));
   json.AddItem("reset_reason", std::string(resetReasonName(esp_reset_reason())));
+  json.AddItem("internet", NetWatch::up());
+  json.AddItem("internet_rtt_ms", NetWatch::lastRttMs());
+  json.AddItem("internet_down_s", NetWatch::downForS());
   // Lowest free stack ever seen on the clock loop's task, in bytes.
   if (TaskHandle_t main = xTaskGetHandle("main")) {
     json.AddItem("main_stack_min_free", static_cast<int>(uxTaskGetStackHighWaterMark(main)));

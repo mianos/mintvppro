@@ -33,6 +33,10 @@ button{padding:.6rem 1.4rem;font-size:1rem;border:0;border-radius:4px;background
 <label>Latitude<input name="latitude" inputmode="decimal" required><small>South is negative</small></label>
 <label>Longitude<input name="longitude" inputmode="decimal" required><small>East is positive</small></label>
 </fieldset>
+<fieldset><legend>Internet check</legend>
+<label>Targets<input name="net_check" placeholder="1.1.1.1:53,8.8.8.8:53">
+<small>Comma separated host:port, probed every 30 s. NET stays lit while one of them answers.</small></label>
+</fieldset>
 <fieldset><legend>MQTT (saving a change here restarts the clock)</legend>
 <label>Server<input name="mqtt_server" required></label>
 <label>Port<input name="mqtt_port" type="number" min="1" max="65535" required></label>

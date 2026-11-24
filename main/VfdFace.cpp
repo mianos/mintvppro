@@ -47,6 +47,7 @@ void lightTemp(Band& b, int first, const Cell& dp, const Cell& up, const Cell& d
 // The date row has six 14-segment characters, so main.cpp's status messages are
 // shortened to a word.
 const char* shortMessage(const std::string& m) {
+    if (m.starts_with("NO INTERNET")) return "NO NET";
     if (m.starts_with("USE ESPTOUCH")) return "SETUP";
     if (m.starts_with("WIFI RESET")) return "RESET";
     if (m.starts_with("WIFI")) return "WIFI";
@@ -61,6 +62,7 @@ void drawVfdFace(Band& b, const FaceState& s) {
     b.blit(0, 0, Band::kWidth, Band::kWidth, kVfdBgStart);
 
     if (s.net == NetState::Online || (s.net == NetState::Connecting && s.now.tm_sec % 2 == 0)) light(b, kWifi);
+    if (s.internet) light(b, kNet);
     if (s.synced) light(b, kSync);
     if (s.hasSunset) {
         light(b, s.isDay ? kSun : kMoon, kFilterRamp);
