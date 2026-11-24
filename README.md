@@ -165,7 +165,9 @@ files and `main/NixieArt.h` or `main/VfdArt.h`; build as usual after that.
 
 ## Flashing with a cable
 
-You only need this the first time, or if updating over Wi-Fi stops working.
+You only need this the first time, if updating over Wi-Fi stops working, or after
+a partition table change (the app slot has moved, so nothing already on the clock
+lines up until it is rewritten).
 
 The USB-C port only gives power. To flash, open the case and connect a 3.3 V USB to
 serial adapter to the pins inside (TX, RX, GND). Then:
