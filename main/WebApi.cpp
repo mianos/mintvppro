@@ -158,8 +158,9 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
   if (!newOta0) return sendJsonError(req, 400, "table has no ota_0");
   const esp_partition_t* running = esp_ota_get_running_partition();
   if (newOta0->pos.offset != running->address) {
-    return sendJsonError(req, 409, "ota_0 moves to " + text::hex(newOta0->pos.offset) + " but this image runs from " +
-                                       text::hex(running->address));
+    return sendJsonError(req, 409, "ota_0 moves to " + text::hex(newOta0->pos.offset) +
+                                       " but this image runs from " + text::hex(running->address) +
+                                       "; push the image again so it lands in ota_0");
   }
 
   std::vector<uint8_t> current(kTableSector);
