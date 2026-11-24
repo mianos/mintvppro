@@ -36,7 +36,7 @@
 #include "Temperature.h"
 #include "TouchKey.h"
 #include "WebApi.h"
-#include "wifimanager.h"
+#include "WifiManager.h"
 
 namespace {
 
