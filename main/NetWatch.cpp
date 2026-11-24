@@ -36,7 +36,7 @@ struct Target {
 std::atomic<bool> s_up{false};
 std::atomic<bool> s_known{false};
 std::atomic<int> s_rttMs{0};
-std::atomic<uint32_t> s_sinceOkMs{0};  // millis, against esp_timer; 0 before start()
+std::atomic<uint32_t> s_downSinceMs{0};  // millis, against esp_timer; 0 while up
 std::atomic<int> s_fails{0};
 
 SemaphoreHandle_t s_lock = nullptr;
@@ -136,11 +136,14 @@ bool probeCycle() {
     if (ok) {
         s_fails = 0;
         s_rttMs = rtt;
-        s_sinceOkMs = nowMs();
+        s_downSinceMs = 0;
         s_up = true;
         return true;
     }
-    if (s_sinceOkMs.load() == 0) s_sinceOkMs = nowMs();
+    // Date an outage from its first failed round, not from the second, so the
+    // NO NET message lands a minute after it began rather than a minute after the
+    // lamp gave up on it.
+    if (s_downSinceMs == 0) s_downSinceMs = nowMs();
     if (++s_fails >= kFailsBeforeDown) s_up = false;
     return s_up;
 }
@@ -168,7 +171,6 @@ namespace NetWatch {
 void start(const char* targets) {
     if (s_task) return;
     s_lock = xSemaphoreCreateMutex();
-    s_sinceOkMs = nowMs();
     setTargets(targets);
     xTaskCreate(task, "netwatch", kTaskStack, nullptr, 2, &s_task);
 }
@@ -189,12 +191,13 @@ bool known() { return s_known; }
 int lastRttMs() { return s_rttMs; }
 
 int downForS() {
-    const uint32_t since = s_sinceOkMs;
-    if (since == 0) return 0;
+    const uint32_t since = s_downSinceMs;
+    if (!s_up || since == 0) return 0;
     return static_cast<int>((nowMs() - since) / 1000);
 }
 
 void linkLost() {
+    if (s_downSinceMs == 0) s_downSinceMs = nowMs();
     s_fails = kFailsBeforeDown;  // down at once, without waiting for a cycle
     s_up = false;
     nudge();
