@@ -7,6 +7,7 @@
 #include <ranges>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "LogBuffer.h"
 #include "NetWatch.h"
@@ -136,7 +137,8 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
   if (len != kTableBytes) {
     return sendJsonError(req, 400, "body must be the 3072 byte partition-table.bin");
   }
-  std::array<uint8_t, kTableBytes> table{};
+  // On the heap: the buffers together are 10 KB and the httpd task stack is 4 KB.
+  std::vector<uint8_t> table(kTableBytes);
   for (int got = 0; got < static_cast<int>(len);) {
     const int n = httpd_req_recv(req, reinterpret_cast<char*>(table.data()) + got, len - got);
     if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
@@ -160,7 +162,7 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
                                        text::hex(running->address));
   }
 
-  std::array<uint8_t, kTableSector> current{};
+  std::vector<uint8_t> current(kTableSector);
   esp_flash_read(esp_flash_default_chip, current.data(), kTableAddress, current.size());
   if (std::memcmp(current.data(), table.data(), table.size()) == 0) {
     JsonWrapper resp;
@@ -182,7 +184,7 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
   err = esp_flash_erase_region(esp_flash_default_chip, kTableAddress, kTableSector);
   if (err == ESP_OK) err = esp_flash_write(esp_flash_default_chip, table.data(), kTableAddress, table.size());
 
-  std::array<uint8_t, kTableBytes> check{};
+  std::vector<uint8_t> check(kTableBytes);
   if (err == ESP_OK) err = esp_flash_read(esp_flash_default_chip, check.data(), kTableAddress, check.size());
   if (err == ESP_OK && std::memcmp(check.data(), table.data(), table.size()) != 0) err = ESP_ERR_INVALID_CRC;
   if (err != ESP_OK) {
