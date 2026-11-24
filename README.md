@@ -13,6 +13,9 @@ the date. There are two clock faces, chosen on the settings page:
   exporting, negative while importing) and the OUT temperature, each with a ▲ or ▼ if it went up or down in the
   last 10 minutes, and the date. Along the top:
   - **Wi-Fi symbol:** lit when connected, blinking while connecting.
+  - **NET:** lit while the internet is reachable, dark while it is not. The symbol
+    to its left says the link is up; this one says something answers at the far
+    end of it. After a minute down the date is replaced by `NO NET`.
   - **SYNC:** the clock got the time from the internet in the last 3 hours.
   - **Sun or moon:** day or night, from sunrise and sunset at your location.
   - **Sunset time:** today's sunset, for example 7:07. Its colon blinks in the
@@ -25,7 +28,8 @@ the date. There are two clock faces, chosen on the settings page:
   brass plate. The
   first digit stays unlit before 10 o'clock, like a 3.5 digit clock.
   A small lamp in the top left corner is orange when Wi-Fi is connected, blinks
-  while connecting, and is red when Wi-Fi is not set up yet.
+  while connecting, and is red when Wi-Fi is not set up yet. If the internet stays
+  unreachable for a minute, the brass plate says `No internet` instead of the date.
 
 ## The button
 
@@ -47,7 +51,7 @@ The touch button is on the front.
 
 ## Settings page
 
-Open `http://<clock name>/` in a browser (for example `http://mintvpro.mianos.com/`).
+Open `http://<clock name>/` in a browser (for example `http://nmtv-clock.mianos.com/`).
 You can change:
 
 - the clock's network name
@@ -55,6 +59,7 @@ You can change:
 - the clock face
 - your location (used to work out sunset)
 - the MQTT server, the grid power topic and the outside temperature topic
+- the targets probed to decide whether the internet is reachable
 
 Changes to time and location work straight away. Changes to the name or MQTT make the
 clock restart. There is also a button to restart the clock.
@@ -62,8 +67,8 @@ clock restart. There is also a button to restart the clock.
 The same settings as JSON:
 
 ```sh
-curl http://mintvpro.mianos.com/config
-curl -X POST -d '{"face":1}' http://mintvpro.mianos.com/config
+curl http://nmtv-clock.mianos.com/config
+curl -X POST -d '{"face":1}' http://nmtv-clock.mianos.com/config
 ```
 
 ## MQTT messages
@@ -87,13 +92,46 @@ The outside temperature topic should send a message like this:
 
 If a reading is more than 30 minutes old, the clock shows `--` instead.
 
+## Internet status
+
+The NET symbol, and `NO NET` after a minute, come from a probe of the targets in
+the `net_check` setting (default `1.1.1.1:53,8.8.8.8:53`, comma separated
+host:port). Every 30 seconds the clock opens a TCP connection to the first target
+that answers and closes it again. A completed connection, not a ping: ICMP is
+often filtered and the point is whether anything is reachable, not whether it is
+polite.
+
+Two failed rounds in a row are needed before it counts as down, so a single lost
+packet does not blink the lamp; one success brings it back. Wi-Fi dropping counts
+at once. The state is also in `/healthz` as `internet`, `internet_rtt_ms` and
+`internet_down_s` (counted from the first failed round, zero while up).
+
+The check says nothing about DNS or throughput — it is the path out of the house,
+which is what a clock with a NET lamp is for. Point `net_check` at something in
+your own provider if 1.1.1.1 disagrees with the rest of the network.
+
+## Where the project lives
+
+On **esp-builder**, not the Mac: `~/walocal/nmtv-clock`, with its bare repo at
+`~/walocal/nmtv-clock.git`. The Mac is only for the art tools below and for
+reading the clock's pages. Build over ssh:
+
+```sh
+ssh esp-builder
+cd ~/walocal/nmtv-clock && ./deploy.sh     # build, push, and report health
+```
+
+The builder has IDF v6.0.3; the Mac's v6.0.1 produces a different binary. Neither
+`sdkconfig` nor `build/` is committed, so each host keeps its own.
+
 ## Updating the firmware
 
-You need ESP-IDF 6.0.1. Build, then send the new firmware over Wi-Fi:
+`./deploy.sh` does this in one step. By hand, build and then send the image over
+Wi-Fi:
 
 ```sh
 ./build.sh
-curl --data-binary @build/mintvpro.bin http://mintvpro.mianos.com/firmware
+curl --data-binary @build/mintvpro.bin http://nmtv-clock.mianos.com/firmware
 ```
 
 The clock restarts with the new firmware. If the new firmware can't get onto Wi-Fi
@@ -102,9 +140,9 @@ within 2 minutes, the clock goes back to the old firmware by itself.
 Useful pages for checking on the clock:
 
 ```sh
-curl http://mintvpro.mianos.com/healthz    # version, uptime, memory, why it last restarted
-curl http://mintvpro.mianos.com/log        # recent log messages
-curl http://mintvpro.mianos.com/log?prev   # the last log messages before the last restart
+curl http://nmtv-clock.mianos.com/healthz    # version, uptime, memory, reset reason, internet state
+curl http://nmtv-clock.mianos.com/log        # recent log messages
+curl http://nmtv-clock.mianos.com/log?prev   # the last log messages before the last restart
 ```
 
 ## Changing the nixie and VFD faces
@@ -118,7 +156,7 @@ python3 tools/nixie/gen.py
 python3 tools/vfd/gen.py
 ```
 
-This needs Google Chrome on a Mac. It rewrites the `main/nixie_*` or `main/vfd_*`
+This needs Google Chrome on a Mac, so work in a clone there. It rewrites the `main/nixie_*` or `main/vfd_*`
 files and `main/NixieArt.h` or `main/VfdArt.h`; build as usual after that.
 
 ## Flashing with a cable
