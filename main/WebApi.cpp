@@ -14,6 +14,8 @@
 #include "Text.h"
 #include "WebPage.h"
 #include "esp_flash.h"
+#include "esp_flash_chips/esp_flash_types.h"
+#include "esp_flash_chips/spi_flash_chip_driver.h"
 #include "esp_flash_partitions.h"
 #include "esp_partition.h"
 #include "esp_app_desc.h"
@@ -22,7 +24,6 @@
 #include "esp_ota_ops.h"
 #include "esp_private/cache_utils.h"
 #include "esp_system.h"
-#include "esp_rom_spiflash.h"
 #include "esp_timer.h"
 
 namespace {
@@ -35,6 +36,7 @@ constexpr int kMaxConfigBody = 4 * 1024;
 constexpr uint32_t kTableAddress = 0x8000;
 constexpr size_t kTableSector = 0x1000;
 constexpr size_t kTableBytes = 0xC00;
+constexpr uint32_t kCrumbMagic = 0xC0DE;
 
 std::string currentHostname() {
   const char* name = nullptr;
@@ -62,12 +64,31 @@ std::string_view resetReasonName(esp_reset_reason_t r) {
   }
 }
 
+// Erase and rewrite the table sector at the chip-driver level, inside one held
+// cache, and deliberately without the driver's end() step. end() flushes the
+// cache, and that flush faults on this sector: its 64KB page is the one the
+// bootloader lives in, so the page is always mapped. Nothing executes from the
+// table sector, so skipping the flush is safe.
+IRAM_ATTR esp_err_t flashReplaceTable(const void* src, size_t len) {
+    esp_flash_t* chip = esp_flash_default_chip;
+    spi_flash_disable_interrupts_caches_and_other_cpu();
+    esp_err_t err = chip->chip_drv->set_chip_write_protect(chip, false);
+    if (err == ESP_OK) err = chip->chip_drv->erase_sector(chip, kTableAddress);
+    if (err == ESP_OK) err = chip->chip_drv->write(chip, src, kTableAddress, len);
+    chip->chip_drv->set_chip_write_protect(chip, true);
+    spi_flash_enable_interrupts_caches_and_other_cpu();
+    return err;
+}
+
 void restartSoon() {
   vTaskDelay(pdMS_TO_TICKS(500));  // let the response flush
   esp_restart();
 }
 
 }  // namespace
+
+uint32_t g_repartition_crumb;  // the attribute is on the declaration in WebApi.h
+uint32_t g_repartition_magic;
 
 void WebApi::register_routes() {
   WifiWebServer::register_routes();
@@ -190,27 +211,25 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
   // executes from the table sector, so there is nothing to flush.
   alignas(4) static uint32_t words[kTableBytes / 4];
   std::memcpy(words, table.data(), table.size());
-  spi_flash_disable_interrupts_caches_and_other_cpu();
-  esp_rom_spiflash_result_t rom = esp_rom_spiflash_erase_sector(kTableAddress / kTableSector);
-  if (rom == ESP_ROM_SPIFLASH_RESULT_OK) rom = esp_rom_spiflash_write(kTableAddress, words, kTableBytes);
-  spi_flash_enable_interrupts_caches_and_other_cpu();
-  err = rom == ESP_ROM_SPIFLASH_RESULT_OK ? ESP_OK : ESP_ERR_INVALID_STATE;
+  g_repartition_magic = kCrumbMagic;
+  g_repartition_crumb = 1;
+  err = flashReplaceTable(words, kTableBytes);
+  g_repartition_crumb = 2;
 
   std::vector<uint8_t> check(kTableBytes);
   if (err == ESP_OK) err = esp_flash_read(esp_flash_default_chip, check.data(), kTableAddress, check.size());
   if (err == ESP_OK && std::memcmp(check.data(), table.data(), table.size()) != 0) err = ESP_ERR_INVALID_CRC;
+  g_repartition_crumb = 3;
 
   if (err != ESP_OK) {
     // Put the previous table back; this still runs, so the retry needs no cable.
     std::memcpy(words, current.data(), table.size());
-    spi_flash_disable_interrupts_caches_and_other_cpu();
-    esp_rom_spiflash_erase_sector(kTableAddress / kTableSector);
-    esp_rom_spiflash_write(kTableAddress, words, kTableBytes);
-    spi_flash_enable_interrupts_caches_and_other_cpu();
+    flashReplaceTable(words, kTableBytes);
     ESP_LOGE(TAG, "table write failed (%s), previous table restored", esp_err_to_name(err));
     return sendJsonError(req, 500, std::string("table write failed and was rolled back: ") + esp_err_to_name(err));
   }
 
+  g_repartition_magic = 0;  // nothing left to report after a good write
   JsonWrapper resp;
   resp.AddItem("status", std::string("ok, rebooting into the new layout"));
   resp.AddItem("partitions", count);

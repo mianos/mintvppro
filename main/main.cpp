@@ -119,6 +119,10 @@ int loadBrightness(NvsStorageManager& nvs) {
 
 extern "C" void app_main(void) {
     LogBuffer::install();
+    if (g_repartition_magic == 0xC0DE) {
+        ESP_LOGW(TAG, "last repartition attempt stopped at crumb %u", static_cast<unsigned>(g_repartition_crumb));
+        g_repartition_magic = 0;
+    }
     initNvs();
     static NvsStorageManager nvs;
     static Settings settings(nvs);

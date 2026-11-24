@@ -1,4 +1,7 @@
 #pragma once
+#include <cstdint>
+
+#include "esp_attr.h"
 #include "Settings.h"
 #include "TouchKey.h"
 #include "WifiWebServer.h"
@@ -10,6 +13,11 @@
 //   GET/POST /config settings as JSON (plus "hostname"); POST applies any subset
 //   POST /reboot     plain restart (mianesp's /reset also clears Wi-Fi)
 //   GET/POST /repartition  current partition layout; install a new table
+// Where the last repartition attempt got to, kept across the reset that follows a
+// fault; app_main logs it and clears it. Diagnostic only.
+extern RTC_NOINIT_ATTR uint32_t g_repartition_crumb;
+extern RTC_NOINIT_ATTR uint32_t g_repartition_magic;
+
 class WebApi : public WifiWebServer {
  public:
   WebApi(WifiWebContext* ctx, Settings& settings, const TouchKey& key)
