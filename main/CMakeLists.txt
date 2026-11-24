@@ -18,4 +18,6 @@ idf_component_register(SRCS "main.cpp" "Display.cpp" "ClockFace.cpp" "NixieFace.
                          esp_netif
                          esp_event
                          nvs_flash
-                         lwip)
+                         lwip
+                         spi_flash
+                         bootloader_support)

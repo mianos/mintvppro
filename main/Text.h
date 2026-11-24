@@ -80,6 +80,14 @@ inline std::string padded(int value, int width) {
     return out;
 }
 
+inline std::string hex(uint32_t value) {
+    std::array<char, 12> buf{};
+    const auto [end, err] = std::to_chars(buf.data(), buf.data() + buf.size(), value, 16);
+    std::string out = "0x";
+    if (err == std::errc()) out.append(buf.data(), end);
+    return out;
+}
+
 // `s` centred in a `width` field and cut to it: the date row is six characters
 // wide and a status word has to sit in the middle of it.
 inline std::string centred(std::string_view s, int width) {

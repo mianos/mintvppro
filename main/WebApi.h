@@ -9,6 +9,7 @@
 //   GET  /           settings page
 //   GET/POST /config settings as JSON (plus "hostname"); POST applies any subset
 //   POST /reboot     plain restart (mianesp's /reset also clears Wi-Fi)
+//   GET/POST /repartition  current partition layout; install a new table
 class WebApi : public WifiWebServer {
  public:
   WebApi(WifiWebContext* ctx, Settings& settings, const TouchKey& key)
@@ -25,6 +26,8 @@ class WebApi : public WifiWebServer {
   static esp_err_t config_get_handler(httpd_req_t* req);
   static esp_err_t config_post_handler(httpd_req_t* req);
   static esp_err_t reboot_post_handler(httpd_req_t* req);
+  static esp_err_t repartition_get_handler(httpd_req_t* req);
+  static esp_err_t repartition_post_handler(httpd_req_t* req);
 
   Settings& settings_;
   const TouchKey& key_;

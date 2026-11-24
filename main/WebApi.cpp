@@ -3,13 +3,18 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cstring>
 #include <ranges>
 #include <string>
 #include <string_view>
 
 #include "LogBuffer.h"
 #include "NetWatch.h"
+#include "Text.h"
 #include "WebPage.h"
+#include "esp_flash.h"
+#include "esp_flash_partitions.h"
+#include "esp_partition.h"
 #include "esp_app_desc.h"
 #include "esp_netif.h"
 #include "esp_log.h"
@@ -21,6 +26,12 @@ namespace {
 
 constexpr char TAG[] = "webapi";
 constexpr int kMaxConfigBody = 4 * 1024;
+// The partition table is one flash sector at 0x8000: 96 entries of 32 bytes, of
+// which the generator writes 0xff terminators past the MD5. The bootloader finds
+// the end entry, so the whole 3 KB is what gets written.
+constexpr uint32_t kTableAddress = 0x8000;
+constexpr size_t kTableSector = 0x1000;
+constexpr size_t kTableBytes = 0xC00;
 
 std::string currentHostname() {
   const char* name = nullptr;
@@ -65,6 +76,8 @@ void WebApi::register_routes() {
       {.uri = "/config", .method = HTTP_GET, .handler = config_get_handler, .user_ctx = this},
       {.uri = "/config", .method = HTTP_POST, .handler = config_post_handler, .user_ctx = this},
       {.uri = "/reboot", .method = HTTP_POST, .handler = reboot_post_handler, .user_ctx = this},
+      {.uri = "/repartition", .method = HTTP_GET, .handler = repartition_get_handler, .user_ctx = this},
+      {.uri = "/repartition", .method = HTTP_POST, .handler = repartition_post_handler, .user_ctx = this},
   };
   // start() has raised the table to 32 slots, and a failure here is logged rather
   // than fatal: a missing endpoint should not cost the ones after it.
@@ -98,6 +111,97 @@ void WebApi::populate_healthz_fields(WebContext*, JsonWrapper& json) {
 
 // Raw .bin body streamed into the inactive OTA slot, which becomes the next boot
 // partition, then reboot.
+// The layout as flash holds it, one line per partition. Used to confirm a
+// repartition took, and to see where the images are.
+esp_err_t WebApi::repartition_get_handler(httpd_req_t* req) {
+  httpd_resp_set_type(req, "text/plain");
+  std::string out;
+  esp_partition_iterator_t it = esp_partition_find(ESP_PARTITION_TYPE_ANY, ESP_PARTITION_SUBTYPE_ANY, nullptr);
+  for (; it; it = esp_partition_next(it)) {
+    const esp_partition_t* p = esp_partition_get(it);
+    out += std::string(std::string_view(p->label)) + " " + text::hex(p->type) + "/" + text::hex(p->subtype) +
+           " at " + text::hex(p->address) + " size " + text::hex(p->size) + "\n";
+  }
+  esp_partition_iterator_release(it);
+  return httpd_resp_send(req, out.data(), out.size());
+}
+
+// Replaces the partition table with a .bin built by gen_esp32part.py. No cable:
+// nvs, otadata and the ota_0 offset stay put, so an interrupted write still
+// boots the image that is running. The guards are that the table verifies, and
+// that its ota_0 is where this image is actually running from — a table whose
+// ota_0 moved would restart into nothing.
+esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
+  const size_t len = req->content_len;
+  if (len != kTableBytes) {
+    return sendJsonError(req, 400, "body must be the 3072 byte partition-table.bin");
+  }
+  std::array<uint8_t, kTableBytes> table{};
+  for (int got = 0; got < static_cast<int>(len);) {
+    const int n = httpd_req_recv(req, reinterpret_cast<char*>(table.data()) + got, len - got);
+    if (n == HTTPD_SOCK_ERR_TIMEOUT) continue;
+    if (n <= 0) return sendJsonError(req, 400, "body truncated");
+    got += n;
+  }
+
+  int count = 0;
+  if (esp_partition_table_verify(reinterpret_cast<const esp_partition_info_t*>(table.data()), true, &count) != ESP_OK) {
+    return sendJsonError(req, 400, "table does not verify: bad magic or MD5");
+  }
+  const auto* entries = reinterpret_cast<const esp_partition_info_t*>(table.data());
+  const esp_partition_info_t* newOta0 = nullptr;
+  for (int i = 0; i < count; ++i) {
+    if (entries[i].type == ESP_PARTITION_TYPE_APP && entries[i].subtype == ESP_PARTITION_SUBTYPE_APP_OTA_0) newOta0 = &entries[i];
+  }
+  if (!newOta0) return sendJsonError(req, 400, "table has no ota_0");
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  if (newOta0->pos.offset != running->address) {
+    return sendJsonError(req, 409, "ota_0 moves to " + text::hex(newOta0->pos.offset) + " but this image runs from " +
+                                       text::hex(running->address));
+  }
+
+  std::array<uint8_t, kTableSector> current{};
+  esp_flash_read(esp_flash_default_chip, current.data(), kTableAddress, current.size());
+  if (std::memcmp(current.data(), table.data(), table.size()) == 0) {
+    JsonWrapper resp;
+    resp.AddItem("status", std::string("already installed"));
+    return sendJson(req, resp);
+  }
+
+  // Point the boot flag at the running slot first: if anything below fails, the
+  // device restarts into the same image under whichever table is left.
+  const esp_partition_t* ota0 =
+      esp_partition_find_first(ESP_PARTITION_TYPE_APP, ESP_PARTITION_SUBTYPE_APP_OTA_0, nullptr);
+  if (!ota0) return sendJsonError(req, 500, "no ota_0 partition to boot");
+  esp_err_t err = esp_ota_set_boot_partition(ota0);
+  if (err != ESP_OK) return sendJsonError(req, 500, esp_err_to_name(err));
+
+  ESP_LOGW(TAG, "partition table from %s: %d partitions, ota_0 at %s", callerAddress(req).c_str(), count,
+           text::hex(newOta0->pos.offset).c_str());
+
+  err = esp_flash_erase_region(esp_flash_default_chip, kTableAddress, kTableSector);
+  if (err == ESP_OK) err = esp_flash_write(esp_flash_default_chip, table.data(), kTableAddress, table.size());
+
+  std::array<uint8_t, kTableBytes> check{};
+  if (err == ESP_OK) err = esp_flash_read(esp_flash_default_chip, check.data(), kTableAddress, check.size());
+  if (err == ESP_OK && std::memcmp(check.data(), table.data(), table.size()) != 0) err = ESP_ERR_INVALID_CRC;
+  if (err != ESP_OK) {
+    // Put the previous table back; this still runs, so the retry needs no cable.
+    esp_flash_erase_region(esp_flash_default_chip, kTableAddress, kTableSector);
+    esp_flash_write(esp_flash_default_chip, current.data(), kTableAddress, table.size());
+    ESP_LOGE(TAG, "table write failed (%s), previous table restored", esp_err_to_name(err));
+    return sendJsonError(req, 500, std::string("table write failed and was rolled back: ") + esp_err_to_name(err));
+  }
+
+  JsonWrapper resp;
+  resp.AddItem("status", std::string("ok, rebooting into the new layout"));
+  resp.AddItem("partitions", count);
+  const esp_err_t r = sendJson(req, resp);
+  vTaskDelay(pdMS_TO_TICKS(500));  // let the response flush
+  esp_restart();
+  return r;
+}
+
 esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
   const esp_partition_t* target = esp_ota_get_next_update_partition(nullptr);
   if (!target) return sendJsonError(req, 500, "no OTA partition available");
