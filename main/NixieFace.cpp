@@ -1,8 +1,9 @@
-#include <cstdio>
 #include <string>
+#include <string_view>
 
 #include "ClockFace.h"
 #include "NixieArt.h"
+#include "Text.h"
 
 extern const uint8_t kNixieBgStart[] asm("_binary_nixie_bg_bin_start");
 extern const uint8_t kNixieGlowStart[] asm("_binary_nixie_glow_bin_start");
@@ -10,8 +11,8 @@ extern const uint8_t kNixieTextStart[] asm("_binary_nixie_text_bin_start");
 
 namespace {
 
-const char* const kMonthNames[] = {"January", "February", "March",     "April",   "May",      "June",
-                                   "July",    "August",   "September", "October", "November", "December"};
+constexpr std::string_view kMonthNames[] = {"January", "February", "March",     "April",   "May",      "June",
+                                            "July",    "August",   "September", "October", "November", "December"};
 constexpr uint16_t kNixieText = rgb565(nixie::kTextRgb[0], nixie::kTextRgb[1], nixie::kTextRgb[2]);
 constexpr uint16_t kNixieAlert = rgb565(0x90, 0x10, 0x00);  // dark red, readable on the brass
 constexpr uint16_t kLampError = rgb565(0xFF, 0x30, 0x30);
@@ -36,11 +37,9 @@ void drawNixieText(Band& b, int y, const std::string& s, uint16_t color) {
     }
 }
 
-std::string nixieTenths(bool has, int tenths, const char* unit) {
+std::string nixieTenths(bool has, int tenths, std::string_view unit) {
     if (!has) return "--";
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%.1f%s", tenths / 10.0, unit);
-    return buf;
+    return text::fixed1(tenths) + unit;
 }
 
 }  // namespace
@@ -75,16 +74,15 @@ void drawNixieFace(Band& b, const FaceState& s) {
 
     // Brass plate: grid power and outside temperature, then the date, or a status
     // message while starting.
-    static const char kDegreeStr[] = {kDegree, '\0'};
     const std::string temps = "Grid " + nixieTenths(s.hasGrid, s.gridTenths, "kW") + "  Out " +
-                              nixieTenths(s.hasOutside, s.outsideTenths, kDegreeStr);
+                              nixieTenths(s.hasOutside, s.outsideTenths, std::string_view(&kDegree, 1));
     drawNixieText(b, kTextY[0], temps, kNixieText);
     if (!s.message.empty()) {
         drawNixieText(b, kTextY[1], s.message, kNixieAlert);
     } else if (s.timeValid) {
-        char date[24];
-        snprintf(date, sizeof(date), "%d %s", s.now.tm_mday, kMonthNames[s.now.tm_mon % 12]);
-        drawNixieText(b, kTextY[1], date, kNixieText);
+        drawNixieText(b, kTextY[1],
+                      std::to_string(s.now.tm_mday) + " " + std::string(kMonthNames[s.now.tm_mon % 12]),
+                      kNixieText);
     }
 }
 

@@ -1,8 +1,11 @@
 #include "WebApi.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
+#include <ranges>
 #include <string>
+#include <string_view>
 
 #include "LogBuffer.h"
 #include "NetWatch.h"
@@ -26,15 +29,12 @@ std::string currentHostname() {
   return name ? name : "";
 }
 
-bool validHostname(const std::string& h) {
+bool validHostname(std::string_view h) {
   if (h.empty() || h.size() > 32 || h.front() == '-' || h.back() == '-') return false;
-  for (char c : h) {
-    if (!(std::isalnum(static_cast<unsigned char>(c)) || c == '-')) return false;
-  }
-  return true;
+  return std::ranges::all_of(h, [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '-'; });
 }
 
-const char* resetReasonName(esp_reset_reason_t r) {
+std::string_view resetReasonName(esp_reset_reason_t r) {
   switch (r) {
     case ESP_RST_POWERON: return "poweron";
     case ESP_RST_SW: return "sw";
@@ -112,13 +112,13 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
   esp_err_t err = esp_ota_begin(target, req->content_len, &handle);
   if (err != ESP_OK) return sendJsonError(req, 500, esp_err_to_name(err));
 
-  char buf[1024];
+  std::array<char, 1024> buf{};
   int remaining = req->content_len;
   // recv() returns a timeout rather than blocking, so a client that dies mid-body
   // would spin here for ever; give up once it stops making progress.
   TickType_t deadline = xTaskGetTickCount() + pdMS_TO_TICKS(90000);
   while (remaining > 0) {
-    const int got = httpd_req_recv(req, buf, std::min<int>(remaining, sizeof buf));
+    const int got = httpd_req_recv(req, buf.data(), std::min<int>(remaining, buf.size()));
     if (got == HTTPD_SOCK_ERR_TIMEOUT) {
       if (xTaskGetTickCount() > deadline) {
         esp_ota_abort(handle);
@@ -131,7 +131,7 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
       return sendJsonError(req, 400, "upload aborted");
     }
     deadline = xTaskGetTickCount() + pdMS_TO_TICKS(90000);
-    err = esp_ota_write(handle, buf, got);
+    err = esp_ota_write(handle, buf.data(), got);
     if (err != ESP_OK) {
       esp_ota_abort(handle);
       return sendJsonError(req, 500, esp_err_to_name(err));
@@ -156,9 +156,10 @@ esp_err_t WebApi::firmware_post_handler(httpd_req_t* req) {
 
 esp_err_t WebApi::log_get_handler(httpd_req_t* req) {
   httpd_resp_set_type(req, "text/plain");
-  char query[16] = {};
-  httpd_req_get_url_query_str(req, query, sizeof query);
-  std::string log = std::string(query).starts_with("prev") ? LogBuffer::previousBoot() : LogBuffer::snapshot();
+  std::array<char, 16> query{};
+  httpd_req_get_url_query_str(req, query.data(), query.size());
+  const std::string log =
+      std::string_view(query.data()).starts_with("prev") ? LogBuffer::previousBoot() : LogBuffer::snapshot();
   return httpd_resp_send(req, log.data(), log.size());
 }
 

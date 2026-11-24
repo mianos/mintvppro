@@ -2,11 +2,12 @@
 
 #include <atomic>
 #include <cmath>
-#include <cstdio>
 #include <ctime>
 #include <regex>
 #include <string>
+#include <string_view>
 
+#include "Text.h"
 #include "esp_log.h"
 
 namespace {
@@ -60,10 +61,30 @@ bool clockValid(time_t t) {
     return tm.tm_year + 1900 >= 2025;
 }
 
-// "2026-10-13T03:31:30.123Z" (UTC) -> epoch; 0 if unparseable.
-time_t parseIsoUtc(const std::string& s) {
+// Reads exactly `count` digits off the front of `in`.
+bool digits(std::string_view& in, int& out, size_t count) {
+    if (in.size() < count) return false;
+    const auto [end, err] = std::from_chars(in.data(), in.data() + count, out);
+    if (err != std::errc()) return false;
+    in.remove_prefix(count);
+    return true;
+}
+
+// "2026-10-13T03:31:30.123Z" (UTC) -> epoch; 0 if unparseable. The separators are
+// checked, so a truncated or rearranged stamp does not become a plausible date.
+time_t parseIsoUtc(std::string_view s) {
     int y, mo, d, h, mi, sec;
-    if (sscanf(s.c_str(), "%d-%d-%dT%d:%d:%d", &y, &mo, &d, &h, &mi, &sec) != 6) return 0;
+    if (!digits(s, y, 4) || !s.starts_with('-')) return 0;
+    s.remove_prefix(1);
+    if (!digits(s, mo, 2) || !s.starts_with('-')) return 0;
+    s.remove_prefix(1);
+    if (!digits(s, d, 2) || !s.starts_with('T')) return 0;
+    s.remove_prefix(1);
+    if (!digits(s, h, 2) || !s.starts_with(':')) return 0;
+    s.remove_prefix(1);
+    if (!digits(s, mi, 2) || !s.starts_with(':')) return 0;
+    s.remove_prefix(1);
+    if (!digits(s, sec, 2)) return 0;
     // Days from civil (Howard Hinnant), since newlib has no timegm.
     y -= mo <= 2;
     const int era = (y >= 0 ? y : y - 399) / 400;

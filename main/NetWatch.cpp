@@ -4,10 +4,10 @@
 #include <cerrno>
 #include <cstdint>
 #include <cstdlib>
-#include <cstring>
 #include <string>
 #include <vector>
 
+#include "Text.h"
 #include "esp_log.h"
 #include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
@@ -46,8 +46,6 @@ TaskHandle_t s_task = nullptr;
 
 uint32_t nowMs() { return static_cast<uint32_t>(esp_timer_get_time() / 1000); }
 
-bool blank(char c) { return c == ' ' || c == '\t'; }
-
 // "1.1.1.1:53,ct.mianos.com:443" -> targets. A bare host takes the DNS port. The
 // last good list is kept if the new one parses to nothing, so a typo through the
 // settings page cannot silently stop the check.
@@ -56,18 +54,16 @@ std::vector<Target> parse(const std::string& text) {
     size_t at = 0;
     while (at <= text.size()) {
         const size_t end = text.find(',', at);
-        std::string item = text.substr(at, end == std::string::npos ? std::string::npos : end - at);
+        std::string_view item = text::trim(text.substr(at, end == std::string::npos ? std::string::npos : end - at));
         at = end == std::string::npos ? text.size() + 1 : end + 1;
-        while (!item.empty() && blank(item.back())) item.pop_back();
-        while (!item.empty() && blank(item.front())) item.erase(item.begin());
         if (item.empty()) continue;
         Target t{"", kDefaultPort};
         const size_t colon = item.rfind(':');
-        if (colon != std::string::npos && colon + 1 < item.size()) {
-            const int port = std::atoi(item.c_str() + colon + 1);
-            if (port > 0 && port < 65536) {
-                t.port = static_cast<uint16_t>(port);
-                item.resize(colon);
+        if (colon != std::string_view::npos && colon + 1 < item.size()) {
+            const auto port = text::toInt(item.substr(colon + 1));
+            if (port && *port > 0 && *port < 65536) {
+                t.port = static_cast<uint16_t>(*port);
+                item = item.substr(0, colon);
             }
         }
         if (!item.empty()) t.host = item;

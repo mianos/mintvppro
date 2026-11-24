@@ -35,6 +35,7 @@
 #include "Settings.h"
 #include "Sun.h"
 #include "Temperature.h"
+#include "Text.h"
 #include "TouchKey.h"
 #include "WebApi.h"
 #include "WifiManager.h"
@@ -110,7 +111,7 @@ bool otaPendingVerify() {
 int loadBrightness(NvsStorageManager& nvs) {
     std::string v;
     if (!nvs.retrieve("bright", v)) return kLevels - 2;
-    int level = std::atoi(v.c_str());
+    const int level = text::toInt(v).value_or(-1);
     return (level >= 0 && level < kLevels) ? level : kLevels - 2;
 }
 
@@ -123,8 +124,8 @@ extern "C" void app_main(void) {
     static Settings settings(nvs);
     settings.log();
     applyTz(settings.tz);
-    s_latitude = std::strtod(settings.latitude.c_str(), nullptr);
-    s_longitude = std::strtod(settings.longitude.c_str(), nullptr);
+    s_latitude = text::toDouble(settings.latitude).value_or(0);
+    s_longitude = text::toDouble(settings.longitude).value_or(0);
     settings.onChange("tz", [] {
         applyTz(settings.tz);
         s_sunsetDirty = true;
@@ -132,11 +133,11 @@ extern "C" void app_main(void) {
     s_face = Face(settings.face);
     settings.onChange("face", [] { s_face = Face(settings.face); });
     settings.onChange("latitude", [] {
-        s_latitude = std::strtod(settings.latitude.c_str(), nullptr);
+        s_latitude = text::toDouble(settings.latitude).value_or(0);
         s_sunsetDirty = true;
     });
     settings.onChange("longitude", [] {
-        s_longitude = std::strtod(settings.longitude.c_str(), nullptr);
+        s_longitude = text::toDouble(settings.longitude).value_or(0);
         s_sunsetDirty = true;
     });
     settings.onChange("net_check", [] { NetWatch::setTargets(settings.netCheck.c_str()); });
