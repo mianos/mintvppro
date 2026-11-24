@@ -16,12 +16,17 @@ VERSION=$(git rev-parse --short HEAD)
 layout() { curl -fsS -m 10 "http://$HOST/repartition"; }
 health() { curl -fsS -m 10 "http://$HOST/healthz"; }
 
-echo "current layout:"
-layout
-
-if layout | awk ==ota_0{print } | grep -qx 0x1f0000; then
-    echo "already on the new layout"
-    exit 0
+# The endpoint only exists in images built after it: an older one answers 404,
+# which is fine, it just cannot be on the new layout yet.
+if before=$(layout 2>/dev/null); then
+    echo "current layout:"
+    printf '%s\n' "$before"
+    if printf '%s\n' "$before" | awk '$1 == "ota_0" {print $NF}' | grep -qx 0x1f0000; then
+        echo "already on the new layout"
+        exit 0
+    fi
+else
+    echo "no /repartition endpoint yet, the running image predates it"
 fi
 
 ./build.sh
