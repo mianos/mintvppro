@@ -20,7 +20,9 @@
 #include "esp_netif.h"
 #include "esp_log.h"
 #include "esp_ota_ops.h"
+#include "esp_private/cache_utils.h"
 #include "esp_system.h"
+#include "esp_rom_spiflash.h"
 #include "esp_timer.h"
 
 namespace {
@@ -182,16 +184,29 @@ esp_err_t WebApi::repartition_post_handler(httpd_req_t* req) {
   ESP_LOGW(TAG, "partition table from %s: %d partitions, ota_0 at %s", callerAddress(req).c_str(), count,
            text::hex(newOta0->pos.offset).c_str());
 
-  err = esp_flash_erase_region(esp_flash_default_chip, kTableAddress, kTableSector);
-  if (err == ESP_OK) err = esp_flash_write(esp_flash_default_chip, table.data(), kTableAddress, table.size());
+  // Erase and write through the ROM with the cache held down, not through
+  // esp_flash_*. Those flush the cache after an erase, and that flush faults on
+  // this sector: its 64KB page is the one the bootloader lives in. Nothing ever
+  // executes from the table sector, so there is nothing to flush.
+  alignas(4) static uint32_t words[kTableBytes / 4];
+  std::memcpy(words, table.data(), table.size());
+  spi_flash_disable_interrupts_caches_and_other_cpu();
+  esp_rom_spiflash_result_t rom = esp_rom_spiflash_erase_sector(kTableAddress / kTableSector);
+  if (rom == ESP_ROM_SPIFLASH_RESULT_OK) rom = esp_rom_spiflash_write(kTableAddress, words, kTableBytes);
+  spi_flash_enable_interrupts_caches_and_other_cpu();
+  err = rom == ESP_ROM_SPIFLASH_RESULT_OK ? ESP_OK : ESP_ERR_INVALID_STATE;
 
   std::vector<uint8_t> check(kTableBytes);
   if (err == ESP_OK) err = esp_flash_read(esp_flash_default_chip, check.data(), kTableAddress, check.size());
   if (err == ESP_OK && std::memcmp(check.data(), table.data(), table.size()) != 0) err = ESP_ERR_INVALID_CRC;
+
   if (err != ESP_OK) {
     // Put the previous table back; this still runs, so the retry needs no cable.
-    esp_flash_erase_region(esp_flash_default_chip, kTableAddress, kTableSector);
-    esp_flash_write(esp_flash_default_chip, current.data(), kTableAddress, table.size());
+    std::memcpy(words, current.data(), table.size());
+    spi_flash_disable_interrupts_caches_and_other_cpu();
+    esp_rom_spiflash_erase_sector(kTableAddress / kTableSector);
+    esp_rom_spiflash_write(kTableAddress, words, kTableBytes);
+    spi_flash_enable_interrupts_caches_and_other_cpu();
     ESP_LOGE(TAG, "table write failed (%s), previous table restored", esp_err_to_name(err));
     return sendJsonError(req, 500, std::string("table write failed and was rolled back: ") + esp_err_to_name(err));
   }
