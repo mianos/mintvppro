@@ -192,7 +192,7 @@ int lastRttMs() { return s_rttMs; }
 
 int downForS() {
     const uint32_t since = s_downSinceMs;
-    if (!s_up || since == 0) return 0;
+    if (s_up || since == 0) return 0;
     return static_cast<int>((nowMs() - since) / 1000);
 }
 
